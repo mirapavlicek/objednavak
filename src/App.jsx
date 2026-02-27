@@ -1,45 +1,48 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 
 // ─── FONTS & THEME ───
 const FONT = `'DM Sans', 'Segoe UI', system-ui, sans-serif`;
 const MONO = `'JetBrains Mono', 'Fira Code', monospace`;
-
 const theme = {
-  bg: "#f6f7f9",
-  surface: "#ffffff",
-  surfaceHover: "#f1f5f9",
-  border: "#e2e8f0",
-  borderLight: "#f1f5f9",
-  text: "#0f172a",
-  textSecondary: "#64748b",
-  textMuted: "#94a3b8",
-  accent: "#2563eb",
-  accentLight: "#dbeafe",
-  accentDark: "#1d4ed8",
-  danger: "#dc2626",
-  dangerLight: "#fee2e2",
-  success: "#059669",
-  successLight: "#d1fae5",
-  warning: "#d97706",
-  warningLight: "#fef3c7",
-  purple: "#7c3aed",
-  purpleLight: "#ede9fe",
+  bg: "#f6f7f9", surface: "#ffffff", border: "#e2e8f0", borderLight: "#f1f5f9",
+  text: "#0f172a", textSecondary: "#64748b", textMuted: "#94a3b8",
+  accent: "#2563eb", accentLight: "#dbeafe",
+  danger: "#dc2626", dangerLight: "#fee2e2",
+  success: "#059669", successLight: "#d1fae5",
+  warning: "#d97706", warningLight: "#fef3c7",
+  purple: "#7c3aed", purpleLight: "#ede9fe",
   shadow: "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
   shadowMd: "0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05)",
   shadowLg: "0 10px 25px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04)",
-  radius: "10px",
-  radiusSm: "6px",
-  radiusLg: "14px",
+  radius: "10px", radiusSm: "6px", radiusLg: "14px",
 };
 
 const ROLES = {
-  public: { label: "Veřejnost", icon: "🌐", color: "#6366f1", desc: "Registrace & žádost o termín" },
-  reception: { label: "Recepce", icon: "🖥️", color: "#2563eb", desc: "Správa objednávek & fronta" },
-  doctor: { label: "Lékař", icon: "🩺", color: "#059669", desc: "Denní přehled & pacienti" },
-  manager: { label: "Manažer", icon: "📊", color: "#7c3aed", desc: "Sestavy & řízení" },
+  public: { label: "Veřejnost", icon: "🌐", color: "#6366f1" },
+  reception: { label: "Recepce", icon: "🖥️", color: "#2563eb" },
+  doctor: { label: "Lékař", icon: "🩺", color: "#059669" },
+  manager: { label: "Manažer", icon: "📊", color: "#7c3aed" },
 };
 
-// ─── PROCEDURES ───
+const DEFAULT_CONFIG = {
+  clinicName: "Veterinární klinika VetBook",
+  openingHours: { mon: { open: "07:30", close: "18:00" }, tue: { open: "07:30", close: "18:00" }, wed: { open: "07:30", close: "18:00" }, thu: { open: "07:30", close: "18:00" }, fri: { open: "07:30", close: "16:00" }, sat: { open: "08:00", close: "12:00" }, sun: null },
+  slotInterval: 15,
+  acuteBufferSlots: 3,
+  acuteBufferSpacing: 90,
+  doctors: [
+    { id: "d1", name: "MVDr. Jan Novák", specializations: ["chirurgie", "diagnostika", "prevence", "specialni", "akutni", "ostatni"], color: "#2563eb" },
+    { id: "d2", name: "MVDr. Petra Králová", specializations: ["prevence", "diagnostika", "specialni", "ostatni"], color: "#059669" },
+    { id: "d3", name: "MVDr. Tomáš Veselý", specializations: ["chirurgie", "diagnostika", "akutni"], color: "#d97706" },
+  ],
+  procedureBlocks: [
+    { id: "b1", label: "Ranní prevence", timeFrom: "07:30", timeTo: "10:00", categories: ["prevence"], doctorIds: ["d1", "d2"] },
+    { id: "b2", label: "Chirurgie", timeFrom: "10:00", timeTo: "13:00", categories: ["chirurgie"], doctorIds: ["d1", "d3"] },
+    { id: "b3", label: "Odpolední ambulance", timeFrom: "13:00", timeTo: "16:00", categories: ["prevence", "diagnostika", "specialni", "ostatni"], doctorIds: ["d1", "d2"] },
+    { id: "b4", label: "Diagnostika", timeFrom: "08:00", timeTo: "12:00", categories: ["diagnostika"], doctorIds: ["d2", "d3"] },
+  ],
+};
+
 const PROCEDURES = [
   { id: "vaccination", name: "Vakcinace", duration: 15, color: "#059669", category: "prevence" },
   { id: "checkup", name: "Preventivní prohlídka", duration: 20, color: "#2563eb", category: "prevence" },
@@ -70,37 +73,85 @@ const STATUSES = {
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const TODAY = new Date().toISOString().split("T")[0];
 const TOMORROW = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+const DAY_NAMES = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+const DAY_LABELS_CZ = { mon: "Po", tue: "Út", wed: "St", thu: "Čt", fri: "Pá", sat: "So", sun: "Ne" };
+const toMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const fromMin = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-// ─── DEMO DATA ───
 const DEMO_CLIENTS = [
-  { id: "c1", firstName: "Jana", lastName: "Nováková", phone: "602111222", email: "jana@email.cz", registered: true },
-  { id: "c2", firstName: "Petr", lastName: "Dvořák", phone: "603222333", email: "petr@email.cz", registered: true },
-  { id: "c3", firstName: "Marie", lastName: "Svobodová", phone: "604333444", email: "marie@email.cz", registered: true },
-  { id: "c4", firstName: "Tomáš", lastName: "Černý", phone: "605444555", email: "tomas@email.cz", registered: true },
+  { id: "c1", firstName: "Jana", lastName: "Nováková", phone: "602111222", email: "jana@email.cz" },
+  { id: "c2", firstName: "Petr", lastName: "Dvořák", phone: "603222333", email: "petr@email.cz" },
+  { id: "c3", firstName: "Marie", lastName: "Svobodová", phone: "604333444", email: "marie@email.cz" },
+  { id: "c4", firstName: "Tomáš", lastName: "Černý", phone: "605444555", email: "tomas@email.cz" },
 ];
-
 const DEMO_PETS = [
-  { id: "p1", clientId: "c1", name: "Rex", species: "Pes", breed: "Německý ovčák", age: "5 let" },
-  { id: "p2", clientId: "c1", name: "Mícka", species: "Kočka", breed: "Britská", age: "3 roky" },
-  { id: "p3", clientId: "c2", name: "Bety", species: "Pes", breed: "Labrador", age: "2 roky" },
-  { id: "p4", clientId: "c3", name: "Mourek", species: "Kočka", breed: "Domácí", age: "8 let" },
-  { id: "p5", clientId: "c4", name: "Ťapka", species: "Pes", breed: "Jezevčík", age: "10 let" },
+  { id: "p1", clientId: "c1", name: "Rex", species: "Pes", breed: "Německý ovčák" },
+  { id: "p2", clientId: "c1", name: "Mícka", species: "Kočka", breed: "Britská" },
+  { id: "p3", clientId: "c2", name: "Bety", species: "Pes", breed: "Labrador" },
+  { id: "p4", clientId: "c3", name: "Mourek", species: "Kočka", breed: "Domácí" },
+  { id: "p5", clientId: "c4", name: "Ťapka", species: "Pes", breed: "Jezevčík" },
+];
+const DEMO_APTS = [
+  { id: "a1", clientId: "c1", petId: "p1", procedureId: "checkup", doctorId: "d1", date: TODAY, time: "08:00", duration: 20, status: "confirmed", note: "Pravidelná kontrola", createdBy: "reception" },
+  { id: "a2", clientId: "c2", petId: "p3", procedureId: "vaccination", doctorId: "d2", date: TODAY, time: "08:30", duration: 15, status: "confirmed", note: "Přeočkování vzteklina", createdBy: "reception" },
+  { id: "a3", clientId: "c3", petId: "p4", procedureId: "blood_work", doctorId: "d2", date: TODAY, time: "09:00", duration: 15, status: "arrived", note: "Kontrolní KO, ledviny", createdBy: "reception" },
+  { id: "a4", clientId: "c4", petId: "p5", procedureId: "dental", doctorId: "d1", date: TODAY, time: "10:00", duration: 60, status: "confirmed", note: "Zubní kámen, možná extrakce", createdBy: "reception" },
+  { id: "a5", clientId: "c1", petId: "p2", procedureId: "castration", doctorId: "d3", date: TODAY, time: "11:00", duration: 60, status: "confirmed", note: "Kastrace kočky, nalačno", createdBy: "public" },
+  { id: "a6", clientId: "c2", petId: "p3", procedureId: "dermatology", doctorId: "d2", date: TOMORROW, time: "08:00", duration: 30, status: "pending", note: "Svědění, vypadávání srsti", createdBy: "public" },
+  { id: "a7", clientId: "c3", petId: "p4", procedureId: "ultrasound", doctorId: "d3", date: TOMORROW, time: "09:00", duration: 30, status: "pending", note: "Kontrola ledvin po léčbě", createdBy: "public" },
+  { id: "a8", clientId: "c1", petId: "p1", procedureId: "emergency", doctorId: "d1", date: TODAY, time: "10:15", duration: 20, status: "in_progress", note: "Kulhání, podezření na úraz", createdBy: "reception", arrivalTime: "10:10" },
 ];
 
-const DEMO_APPOINTMENTS = [
-  { id: "a1", clientId: "c1", petId: "p1", procedureId: "checkup", date: TODAY, time: "08:00", duration: 20, status: "confirmed", note: "Pravidelná kontrola", createdBy: "reception" },
-  { id: "a2", clientId: "c2", petId: "p3", procedureId: "vaccination", date: TODAY, time: "08:30", duration: 15, status: "confirmed", note: "Přeočkování vzteklina", createdBy: "reception" },
-  { id: "a3", clientId: "c3", petId: "p4", procedureId: "blood_work", date: TODAY, time: "09:00", duration: 15, status: "arrived", note: "Kontrolní KO, ledviny", createdBy: "reception" },
-  { id: "a4", clientId: "c4", petId: "p5", procedureId: "dental", date: TODAY, time: "09:30", duration: 60, status: "confirmed", note: "Zubní kámen, možná extrakce", createdBy: "reception" },
-  { id: "a5", clientId: "c1", petId: "p2", procedureId: "castration", date: TODAY, time: "11:00", duration: 60, status: "confirmed", note: "Kastrace kočky, nalačno", createdBy: "public" },
-  { id: "a6", clientId: "c2", petId: "p3", procedureId: "dermatology", date: TOMORROW, time: "08:00", duration: 30, status: "pending", note: "Svědění, vypadávání srsti", createdBy: "public" },
-  { id: "a7", clientId: "c3", petId: "p4", procedureId: "ultrasound", date: TOMORROW, time: "09:00", duration: 30, status: "pending", note: "Kontrola ledvin po léčbě", createdBy: "public" },
-  { id: "a8", clientId: "c1", petId: "p1", procedureId: "emergency", date: TODAY, time: "10:15", duration: 20, status: "in_progress", note: "Kulhání, podezření na úraz", createdBy: "reception", arrivalTime: "10:10" },
-];
+// ─── FREE SLOT FINDER ───
+function findFreeSlots(config, appointments, procedureId, dateFrom, dateTo, doctorId) {
+  const proc = PROCEDURES.find(p => p.id === procedureId);
+  if (!proc) return [];
+  const duration = proc.duration;
+  const slots = [];
+  const start = new Date(dateFrom);
+  const end = new Date(dateTo);
 
-// ─── ICONS ───
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split("T")[0];
+    const dayName = DAY_NAMES[d.getDay()];
+    const hours = config.openingHours[dayName];
+    if (!hours) continue;
+
+    const openMin = toMin(hours.open);
+    const closeMin = toMin(hours.close);
+    const dayApts = appointments.filter(a => a.date === dateStr && a.status !== "rejected" && a.status !== "no_show" && a.status !== "completed");
+
+    const eligibleDoctors = doctorId ? config.doctors.filter(doc => doc.id === doctorId) :
+      config.doctors.filter(doc => doc.specializations.includes(proc.category));
+
+    for (const doc of eligibleDoctors) {
+      const docApts = dayApts.filter(a => a.doctorId === doc.id);
+      const relevantBlocks = config.procedureBlocks.filter(b =>
+        b.categories.includes(proc.category) && b.doctorIds.includes(doc.id)
+      );
+
+      for (let min = openMin; min + duration <= closeMin; min += config.slotInterval) {
+        const timeStr = fromMin(min);
+        const aptEnd = min + duration;
+        const inBlock = relevantBlocks.length === 0 || relevantBlocks.some(b => min >= toMin(b.timeFrom) && aptEnd <= toMin(b.timeTo));
+        if (!inBlock) continue;
+        const conflict = docApts.some(a => {
+          const aStart = toMin(a.time);
+          const aEnd = aStart + a.duration;
+          return min < aEnd && aptEnd > aStart;
+        });
+        if (!conflict) {
+          slots.push({ date: dateStr, time: timeStr, doctorId: doc.id, doctorName: doc.name, doctorColor: doc.color, duration });
+        }
+      }
+    }
+  }
+  return slots.slice(0, 50);
+}
+
+// ─── SVG ICONS ───
 const Icon = ({ name, size = 16 }) => {
-  const s = { width: size, height: size, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 2 };
+  const s = { width: size, height: size, fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 2, style: { flexShrink: 0 } };
   const icons = {
     plus: <svg {...s}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
     x: <svg {...s}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
@@ -109,7 +160,6 @@ const Icon = ({ name, size = 16 }) => {
     calendar: <svg {...s}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
     user: <svg {...s}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
     phone: <svg {...s}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>,
-    alert: <svg {...s}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
     search: <svg {...s}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
     chevronRight: <svg {...s}><polyline points="9 18 15 12 9 6"/></svg>,
     send: <svg {...s}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>,
@@ -117,77 +167,62 @@ const Icon = ({ name, size = 16 }) => {
     edit: <svg {...s}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
     bar: <svg {...s}><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
     download: <svg {...s}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+    upload: <svg {...s}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+    settings: <svg {...s}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+    database: <svg {...s}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>,
+    alert: <svg {...s}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
   };
   return icons[name] || null;
 };
 
 // ─── SHARED COMPONENTS ───
-function StatusBadge({ status, small }) {
-  const s = STATUSES[status];
-  if (!s) return null;
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: small ? "2px 8px" : "3px 10px", fontSize: small ? 11 : 12, fontWeight: 600, fontFamily: MONO, color: s.color, background: s.bg, border: `1.5px solid ${s.color}20`, borderRadius: 20, whiteSpace: "nowrap" }}>
-      <span style={{ fontSize: small ? 10 : 12 }}>{s.icon}</span>{s.label}
-    </span>
-  );
+function StatusBadge({ status }) {
+  const s = STATUSES[status]; if (!s) return null;
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontSize: 11, fontWeight: 600, fontFamily: MONO, color: s.color, background: s.bg, border: `1.5px solid ${s.color}20`, borderRadius: 20, whiteSpace: "nowrap" }}><span style={{ fontSize: 10 }}>{s.icon}</span>{s.label}</span>;
 }
-
-function ProcBadge({ proc, small }) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: small ? "2px 8px" : "3px 10px", fontSize: small ? 11 : 12, fontWeight: 600, fontFamily: FONT, color: proc.color, background: proc.color + "15", border: `1.5px solid ${proc.color}30`, borderRadius: 20, whiteSpace: "nowrap" }}>
-      {proc.name}<span style={{ fontFamily: MONO, fontSize: 10, opacity: 0.7 }}>{proc.duration}'</span>
-    </span>
-  );
+function ProcBadge({ proc }) {
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", fontSize: 11, fontWeight: 600, fontFamily: FONT, color: proc.color, background: proc.color + "15", border: `1.5px solid ${proc.color}30`, borderRadius: 20, whiteSpace: "nowrap" }}>{proc.name}<span style={{ fontFamily: MONO, fontSize: 10, opacity: 0.7 }}>{proc.duration}'</span></span>;
 }
-
 function Btn({ children, variant = "primary", small, icon, disabled, ...props }) {
-  const styles = {
-    primary: { bg: theme.accent, color: "white", border: "none", shadow: "0 2px 8px rgba(37,99,235,0.25)" },
-    danger: { bg: theme.danger, color: "white", border: "none", shadow: "0 2px 8px rgba(220,38,38,0.25)" },
-    success: { bg: theme.success, color: "white", border: "none", shadow: "0 2px 8px rgba(5,150,105,0.25)" },
-    ghost: { bg: "transparent", color: theme.textSecondary, border: `1.5px solid ${theme.border}`, shadow: "none" },
-    outline: { bg: "white", color: theme.accent, border: `1.5px solid ${theme.accent}`, shadow: "none" },
-  };
+  const styles = { primary: { bg: theme.accent, c: "white", b: "none" }, danger: { bg: theme.danger, c: "white", b: "none" }, success: { bg: theme.success, c: "white", b: "none" }, ghost: { bg: "transparent", c: theme.textSecondary, b: `1.5px solid ${theme.border}` }, outline: { bg: "white", c: theme.accent, b: `1.5px solid ${theme.accent}` } };
   const st = styles[variant];
-  return (
-    <button disabled={disabled} {...props} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: small ? "5px 12px" : "8px 18px", background: disabled ? theme.border : st.bg, color: disabled ? theme.textMuted : st.color, border: st.border, borderRadius: theme.radiusSm, fontSize: small ? 12 : 14, fontWeight: 600, fontFamily: FONT, cursor: disabled ? "not-allowed" : "pointer", boxShadow: disabled ? "none" : st.shadow, transition: "all 0.15s", ...props.style }}>
-      {icon && <Icon name={icon} size={small ? 14 : 16} />}{children}
-    </button>
-  );
+  return <button disabled={disabled} {...props} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: small ? "5px 12px" : "8px 18px", background: disabled ? theme.border : st.bg, color: disabled ? theme.textMuted : st.c, border: st.b, borderRadius: theme.radiusSm, fontSize: small ? 12 : 14, fontWeight: 600, fontFamily: FONT, cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.15s", ...props.style }}>{icon && <Icon name={icon} size={small ? 14 : 16} />}{children}</button>;
 }
-
 function Input({ label, required, icon, textarea, ...props }) {
   const Tag = textarea ? "textarea" : "input";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      {label && <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: FONT }}>{label}{required && <span style={{ color: theme.danger, marginLeft: 2 }}>*</span>}</label>}
+      {label && <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}{required && <span style={{ color: theme.danger, marginLeft: 2 }}>*</span>}</label>}
       <div style={{ position: "relative" }}>
         {icon && <span style={{ position: "absolute", left: 10, top: textarea ? 12 : "50%", transform: textarea ? "none" : "translateY(-50%)", color: theme.textMuted, display: "flex" }}><Icon name={icon} /></span>}
-        <Tag {...props} style={{ width: "100%", boxSizing: "border-box", padding: icon ? (textarea ? "10px 12px 10px 34px" : "8px 12px 8px 34px") : "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, color: theme.text, outline: "none", transition: "border-color 0.15s", background: "white", resize: textarea ? "vertical" : undefined, minHeight: textarea ? 80 : undefined, ...props.style }}
-          onFocus={(e) => (e.target.style.borderColor = theme.accent)} onBlur={(e) => (e.target.style.borderColor = theme.border)} />
+        <Tag {...props} style={{ width: "100%", boxSizing: "border-box", padding: icon ? "8px 12px 8px 34px" : "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, color: theme.text, outline: "none", background: "white", resize: textarea ? "vertical" : undefined, minHeight: textarea ? 80 : undefined, ...props.style }}
+          onFocus={e => e.target.style.borderColor = theme.accent} onBlur={e => e.target.style.borderColor = theme.border} />
       </div>
     </div>
   );
 }
-
-function Card({ children, title, action, accent, noPad, style: extraStyle }) {
+function Select({ label, required, children, ...props }) {
   return (
-    <div style={{ background: "white", borderRadius: theme.radiusLg, border: `1px solid ${theme.border}`, borderTop: accent ? `3px solid ${accent}` : undefined, boxShadow: theme.shadow, overflow: "hidden", ...extraStyle }}>
-      {title && <div style={{ padding: "14px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 14, fontWeight: 700, fontFamily: FONT }}>{title}</span>{action}</div>}
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}{required && <span style={{ color: theme.danger, marginLeft: 2 }}>*</span>}</label>}
+      <select {...props} style={{ padding: "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, background: "white", outline: "none", ...props.style }}>{children}</select>
+    </div>
+  );
+}
+function Card({ children, title, action, accent, noPad, style: sx }) {
+  return (
+    <div style={{ background: "white", borderRadius: theme.radiusLg, border: `1px solid ${theme.border}`, borderTop: accent ? `3px solid ${accent}` : undefined, boxShadow: theme.shadow, overflow: "hidden", ...sx }}>
+      {title && <div style={{ padding: "14px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>{action}</div>}
       {!noPad ? <div style={{ padding: "16px 20px" }}>{children}</div> : children}
     </div>
   );
 }
-
 function Modal({ title, subtitle, onClose, children, footer, wide }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,0.4)", backdropFilter: "blur(4px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "white", borderRadius: theme.radiusLg, width: wide ? "min(720px, 95vw)" : "min(520px, 95vw)", maxHeight: "90vh", overflow: "auto", boxShadow: theme.shadowLg, animation: "slideUp 0.25s ease-out" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "white", borderRadius: theme.radiusLg, width: wide ? "min(800px, 95vw)" : "min(520px, 95vw)", maxHeight: "90vh", overflow: "auto", boxShadow: theme.shadowLg, animation: "slideUp 0.25s ease-out" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", borderBottom: `1px solid ${theme.border}` }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, fontFamily: FONT }}>{title}</h2>
-            {subtitle && <p style={{ margin: "2px 0 0", fontSize: 13, color: theme.textSecondary }}>{subtitle}</p>}
-          </div>
+          <div><h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{title}</h2>{subtitle && <p style={{ margin: "2px 0 0", fontSize: 13, color: theme.textSecondary }}>{subtitle}</p>}</div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textMuted, padding: 4, display: "flex" }}><Icon name="x" size={18} /></button>
         </div>
         <div style={{ padding: "20px 24px" }}>{children}</div>
@@ -196,50 +231,39 @@ function Modal({ title, subtitle, onClose, children, footer, wide }) {
     </div>
   );
 }
-
 function StatBox({ label, value, color, icon }) {
-  return (
-    <div style={{ flex: 1, minWidth: 140, padding: "14px 18px", background: "white", borderRadius: theme.radius, border: `1px solid ${theme.border}`, boxShadow: theme.shadow }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: MONO, marginTop: 2 }}>{value}</div>
-        </div>
-        {icon && <span style={{ fontSize: 28, opacity: 0.3 }}>{icon}</span>}
-      </div>
-    </div>
-  );
+  return <div style={{ flex: 1, minWidth: 130, padding: "14px 18px", background: "white", borderRadius: theme.radius, border: `1px solid ${theme.border}`, boxShadow: theme.shadow }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div><div style={{ fontSize: 26, fontWeight: 800, color, fontFamily: MONO, marginTop: 2 }}>{value}</div></div>{icon && <span style={{ fontSize: 28, opacity: 0.3 }}>{icon}</span>}</div></div>;
 }
 
-// ─── APPOINTMENT ROW ───
-function AptRow({ apt, clients, pets, onAction, role }) {
-  const client = clients.find((c) => c.id === apt.clientId);
-  const pet = pets.find((p) => p.id === apt.petId);
-  const proc = PROCEDURES.find((p) => p.id === apt.procedureId);
-  const endMin = parseInt(apt.time.split(":")[0]) * 60 + parseInt(apt.time.split(":")[1]) + apt.duration;
-  const endTime = `${String(Math.floor(endMin / 60)).padStart(2, "0")}:${String(endMin % 60).padStart(2, "0")}`;
-
+// ─── APT ROW ───
+function AptRow({ apt, clients, pets, config, onAction, role }) {
+  const client = clients.find(c => c.id === apt.clientId);
+  const pet = pets.find(p => p.id === apt.petId);
+  const proc = PROCEDURES.find(p => p.id === apt.procedureId);
+  const doc = config.doctors.find(d => d.id === apt.doctorId);
+  const endTime = fromMin(toMin(apt.time) + apt.duration);
   return (
-    <div style={{ padding: "12px 16px", borderRadius: theme.radius, border: `1.5px solid ${proc?.color || theme.border}20`, borderLeft: `4px solid ${proc?.color || theme.border}`, background: "white", boxShadow: theme.shadow, transition: "all 0.15s" }}>
+    <div style={{ padding: "12px 16px", borderRadius: theme.radius, border: `1.5px solid ${proc?.color || theme.border}20`, borderLeft: `4px solid ${proc?.color || theme.border}`, background: "white", boxShadow: theme.shadow }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700, color: theme.text }}>{apt.time}–{endTime}</span>
-            {proc && <ProcBadge proc={proc} small />}
-            <StatusBadge status={apt.status} small />
+            <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700 }}>{apt.time}–{endTime}</span>
+            {proc && <ProcBadge proc={proc} />}
+            <StatusBadge status={apt.status} />
+            {doc && <span style={{ fontSize: 11, fontWeight: 600, color: doc.color, background: doc.color + "15", padding: "2px 8px", borderRadius: 12 }}>{doc.name.split(" ").pop()}</span>}
             {apt.date !== TODAY && <span style={{ fontSize: 11, fontFamily: MONO, color: theme.textMuted, background: theme.bg, padding: "2px 6px", borderRadius: 4 }}>{apt.date}</span>}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: theme.text }}>{client?.lastName} {client?.firstName}</span>
-            <span style={{ fontSize: 13, color: theme.textSecondary }}>—</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{client?.lastName} {client?.firstName}</span>
+            <span style={{ color: theme.textSecondary }}>—</span>
             <span style={{ fontSize: 14, color: theme.accent, fontWeight: 600 }}>🐾 {pet?.name}</span>
-            <span style={{ fontSize: 12, color: theme.textMuted }}>({pet?.species}, {pet?.breed})</span>
+            <span style={{ fontSize: 12, color: theme.textMuted }}>({pet?.species})</span>
           </div>
-          {apt.note && <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 1 }}>📋 {apt.note}</div>}
+          {apt.note && <div style={{ fontSize: 12, color: theme.textSecondary }}>📋 {apt.note}</div>}
         </div>
         {role !== "public" && (
           <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
-            {role === "reception" && apt.status === "pending" && (<><Btn small variant="success" icon="check" onClick={() => onAction(apt.id, "confirm")}>Potvrdit</Btn><Btn small variant="danger" icon="x" onClick={() => onAction(apt.id, "reject")}>Zamítnout</Btn></>)}
+            {role === "reception" && apt.status === "pending" && <><Btn small variant="success" icon="check" onClick={() => onAction(apt.id, "confirm")}>Potvrdit</Btn><Btn small variant="danger" icon="x" onClick={() => onAction(apt.id, "reject")}>Zamítnout</Btn></>}
             {role === "reception" && apt.status === "confirmed" && <Btn small variant="outline" icon="check" onClick={() => onAction(apt.id, "arrive")}>Přišel</Btn>}
             {(role === "reception" || role === "doctor") && apt.status === "arrived" && <Btn small variant="primary" icon="chevronRight" onClick={() => onAction(apt.id, "start")}>Převzít</Btn>}
             {(role === "reception" || role === "doctor") && apt.status === "in_progress" && <Btn small variant="success" icon="check" onClick={() => onAction(apt.id, "complete")}>Hotovo</Btn>}
@@ -251,26 +275,282 @@ function AptRow({ apt, clients, pets, onAction, role }) {
   );
 }
 
-// ════════════════════════════════════════
-//  PUBLIC VIEW
-// ════════════════════════════════════════
-function PublicView({ onSubmitRequest, clients, pets }) {
+// ─── FREE SLOT FINDER MODAL ───
+function FreeSlotModal({ config, appointments, onClose, onSelect }) {
+  const [procId, setProcId] = useState("");
+  const [docId, setDocId] = useState("");
+  const [dateFrom, setDateFrom] = useState(TODAY);
+  const [dateTo, setDateTo] = useState(new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0]);
+  const slots = useMemo(() => procId ? findFreeSlots(config, appointments, procId, dateFrom, dateTo, docId || null) : [], [procId, docId, dateFrom, dateTo, config, appointments]);
+  const grouped = useMemo(() => {
+    const m = {};
+    slots.forEach(s => { if (!m[s.date]) m[s.date] = []; m[s.date].push(s); });
+    return Object.entries(m);
+  }, [slots]);
+
+  return (
+    <Modal title="🔍 Najít volný termín" subtitle="Vyhledání dostupných časů podle procedury, lékaře a období" onClose={onClose} wide>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 2, minWidth: 180 }}>
+            <Select label="Procedura" required value={procId} onChange={e => setProcId(e.target.value)}>
+              <option value="">— vyberte proceduru —</option>
+              {PROCEDURES.filter(p => p.id !== "emergency").map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}
+            </Select>
+          </div>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <Select label="Lékař (nepovinné)" value={docId} onChange={e => setDocId(e.target.value)}>
+              <option value="">Kdokoliv</option>
+              {config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+          </div>
+          <div style={{ flex: 1, minWidth: 130 }}><Input label="Od" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+          <div style={{ flex: 1, minWidth: 130 }}><Input label="Do" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
+        </div>
+
+        {procId && (
+          <div style={{ maxHeight: 400, overflow: "auto", border: `1px solid ${theme.border}`, borderRadius: theme.radius }}>
+            {grouped.length === 0 ? (
+              <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné volné termíny v zadaném období</div>
+            ) : grouped.map(([date, daySlots]) => (
+              <div key={date}>
+                <div style={{ padding: "8px 16px", background: theme.bg, fontWeight: 700, fontSize: 13, fontFamily: FONT, borderBottom: `1px solid ${theme.border}`, position: "sticky", top: 0, zIndex: 1 }}>
+                  📅 {new Date(date + "T00:00").toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long" })}
+                  <span style={{ fontWeight: 400, color: theme.textMuted, marginLeft: 8 }}>{daySlots.length} volných</span>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "10px 16px" }}>
+                  {daySlots.map((s, i) => (
+                    <button key={i} onClick={() => onSelect(s)}
+                      style={{ padding: "6px 14px", border: `1.5px solid ${s.doctorColor}30`, borderRadius: theme.radiusSm, background: s.doctorColor + "08", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s", fontSize: 13, fontFamily: FONT }}
+                      onMouseEnter={e => { e.currentTarget.style.background = s.doctorColor + "20"; e.currentTarget.style.borderColor = s.doctorColor; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = s.doctorColor + "08"; e.currentTarget.style.borderColor = s.doctorColor + "30"; }}>
+                      <span style={{ fontFamily: MONO, fontWeight: 700, color: theme.text }}>{s.time}</span>
+                      <span style={{ fontSize: 11, color: s.doctorColor, fontWeight: 600 }}>{s.doctorName.split(" ").pop()}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {!procId && <div style={{ padding: 30, textAlign: "center", color: theme.textMuted, background: theme.bg, borderRadius: theme.radius }}>⬆️ Vyberte proceduru pro vyhledání volných termínů</div>}
+      </div>
+    </Modal>
+  );
+}
+
+// ─── SETTINGS VIEW ───
+function SettingsView({ config, setConfig }) {
+  const [tab, setTab] = useState("hours");
+  const [winvetTab, setWinvetTab] = useState("info");
+  const tabs = [
+    { id: "hours", label: "⏰ Otvírací doba" },
+    { id: "doctors", label: "👨‍⚕️ Lékaři" },
+    { id: "blocks", label: "📋 Bloky procedur" },
+    { id: "acute", label: "🚨 Akutní sloty" },
+    { id: "winvet", label: "🔗 WinVet integrace" },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", gap: 4, borderBottom: `2px solid ${theme.border}`, overflowX: "auto" }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 16px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.purple : "transparent"}`, background: "none", color: tab === t.id ? theme.purple : theme.textSecondary, fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
+        ))}
+      </div>
+
+      {tab === "hours" && (
+        <Card title="⏰ Otvírací doba ordinace">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {Object.entries(DAY_LABELS_CZ).map(([day, label]) => {
+              const h = config.openingHours[day];
+              return (
+                <div key={day} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 30, fontWeight: 700, fontSize: 14, fontFamily: MONO }}>{label}</span>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!h} onChange={e => setConfig({ ...config, openingHours: { ...config.openingHours, [day]: e.target.checked ? { open: "08:00", close: "17:00" } : null } })} />
+                    <span style={{ fontSize: 13, color: h ? theme.text : theme.textMuted }}>{h ? "Otevřeno" : "Zavřeno"}</span>
+                  </label>
+                  {h && <>
+                    <input type="time" value={h.open} onChange={e => setConfig({ ...config, openingHours: { ...config.openingHours, [day]: { ...h, open: e.target.value } } })}
+                      style={{ padding: "4px 8px", border: `1px solid ${theme.border}`, borderRadius: 4, fontFamily: MONO, fontSize: 13 }} />
+                    <span style={{ color: theme.textMuted }}>–</span>
+                    <input type="time" value={h.close} onChange={e => setConfig({ ...config, openingHours: { ...config.openingHours, [day]: { ...h, close: e.target.value } } })}
+                      style={{ padding: "4px 8px", border: `1px solid ${theme.border}`, borderRadius: 4, fontFamily: MONO, fontSize: 13 }} />
+                  </>}
+                </div>
+              );
+            })}
+            <div style={{ marginTop: 8 }}><Input label="Interval slotů (min)" type="number" value={config.slotInterval} onChange={e => setConfig({ ...config, slotInterval: parseInt(e.target.value) || 15 })} style={{ width: 100 }} /></div>
+          </div>
+        </Card>
+      )}
+
+      {tab === "doctors" && (
+        <Card title="👨‍⚕️ Lékaři a specializace">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {config.doctors.map((doc, idx) => (
+              <div key={doc.id} style={{ padding: 14, border: `1.5px solid ${doc.color}30`, borderLeft: `4px solid ${doc.color}`, borderRadius: theme.radius, background: doc.color + "05" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontWeight: 700, color: doc.color }}>{doc.name}</span>
+                  <input type="color" value={doc.color} onChange={e => { const d = [...config.doctors]; d[idx] = { ...d[idx], color: e.target.value }; setConfig({ ...config, doctors: d }); }} style={{ width: 30, height: 24, border: "none", cursor: "pointer" }} />
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {["prevence", "diagnostika", "chirurgie", "specialni", "akutni", "ostatni"].map(cat => {
+                    const active = doc.specializations.includes(cat);
+                    return <button key={cat} onClick={() => { const d = [...config.doctors]; d[idx] = { ...d[idx], specializations: active ? d[idx].specializations.filter(s => s !== cat) : [...d[idx].specializations, cat] }; setConfig({ ...config, doctors: d }); }}
+                      style={{ padding: "4px 10px", borderRadius: 12, border: `1.5px solid ${active ? doc.color : theme.border}`, background: active ? doc.color + "15" : "white", color: active ? doc.color : theme.textMuted, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{cat}</button>;
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {tab === "blocks" && (
+        <Card title="📋 Bloky procedur — rozdělení dne">
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {config.procedureBlocks.map((block, idx) => (
+              <div key={block.id} style={{ padding: 14, border: `1px solid ${theme.border}`, borderRadius: theme.radius, background: theme.bg }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{block.label}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 13, color: theme.accent, fontWeight: 600 }}>{block.timeFrom}–{block.timeTo}</span>
+                </div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: theme.textMuted, marginRight: 4 }}>Kategorie:</span>
+                  {block.categories.map(c => <span key={c} style={{ padding: "2px 8px", borderRadius: 10, background: theme.accentLight, color: theme.accent, fontSize: 11, fontWeight: 600 }}>{c}</span>)}
+                </div>
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, color: theme.textMuted, marginRight: 4 }}>Lékaři:</span>
+                  {block.doctorIds.map(dId => { const d = config.doctors.find(x => x.id === dId); return d ? <span key={dId} style={{ padding: "2px 8px", borderRadius: 10, background: d.color + "15", color: d.color, fontSize: 11, fontWeight: 600 }}>{d.name.split(" ").pop()}</span> : null; })}
+                </div>
+              </div>
+            ))}
+            <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.warning }}>💡 V produkci bude možné bloky přidávat, editovat a mazat. Toto je demo ukázka konfigurace.</div>
+          </div>
+        </Card>
+      )}
+
+      {tab === "acute" && (
+        <Card title="🚨 Akutní sloty — buffer pro urgentní případy" accent={theme.danger}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ padding: 14, background: theme.dangerLight, borderRadius: theme.radius, fontSize: 13, color: theme.danger }}>
+              ⚠️ Systém automaticky rezervuje prázdné sloty pro akutní případy. Tyto sloty se uvolní do běžného objednávání, pokud nejsou obsazeny akutem 60 min předem.
+            </div>
+            <Input label="Počet akutních bufferů za den" type="number" value={config.acuteBufferSlots} onChange={e => setConfig({ ...config, acuteBufferSlots: parseInt(e.target.value) || 2 })} style={{ width: 100 }} />
+            <Input label="Rozestup bufferů (min)" type="number" value={config.acuteBufferSpacing} onChange={e => setConfig({ ...config, acuteBufferSpacing: parseInt(e.target.value) || 90 })} style={{ width: 100 }} />
+            <div style={{ fontSize: 13, color: theme.textSecondary }}>
+              Aktuální nastavení: <strong>{config.acuteBufferSlots} slotů</strong> po <strong>{config.acuteBufferSpacing} min</strong> — akutní se řadí podle <strong>času příchodu</strong>, ne podle objednání.
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {tab === "winvet" && (
+        <Card title="🔗 WinVet integrace" accent="#e67e22">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ padding: 14, background: "#fff8f0", borderRadius: theme.radius, border: "1.5px solid #f0c078" }}>
+              <div style={{ fontWeight: 700, color: "#c0710a", marginBottom: 6 }}>O programu WinVet</div>
+              <div style={{ fontSize: 13, color: "#8a5d1f", lineHeight: 1.6 }}>
+                WinVet je desktopová aplikace (Windows) s <strong>Firebird databází</strong>. Nemá veřejné REST API. Integrace je možná těmito způsoby:
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${theme.border}` }}>
+              {[{id:"info",l:"ℹ️ Možnosti"},{id:"csv",l:"📄 CSV import"},{id:"db",l:"🗄️ Firebird DB"},{id:"gcal",l:"📅 Google Cal"}].map(t =>
+                <button key={t.id} onClick={() => setWinvetTab(t.id)} style={{ padding: "8px 14px", border: "none", borderBottom: `2px solid ${winvetTab === t.id ? "#e67e22" : "transparent"}`, background: "none", color: winvetTab === t.id ? "#e67e22" : theme.textMuted, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t.l}</button>
+              )}
+            </div>
+
+            {winvetTab === "info" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  { icon: "📄", title: "CSV/TXT export → import", desc: "WinVet umožňuje export majitelů a pacientů do textových souborů. VetBook je naimportuje.", effort: "Nízká", status: "✅ Implementováno" },
+                  { icon: "🗄️", title: "Přímý přístup k Firebird DB", desc: "Čtení dat přímo z WinVet databáze (fbclient.dll). Vyžaduje síťový přístup k DB serveru.", effort: "Střední", status: "🔧 Vyžaduje konfiguraci" },
+                  { icon: "📅", title: "Google Calendar sync", desc: "WinVet již umí synchronizovat s Google Kalendářem. VetBook může číst stejný kalendář.", effort: "Nízká", status: "🔧 Vyžaduje Google API klíč" },
+                  { icon: "📋", title: "Modul Fronta", desc: "WinVet má vlastní Frontu pro recepci. VetBook ji nahrazuje s rozšířeným workflow.", effort: "—", status: "↔️ Nahrazeno VetBookem" },
+                ].map((item, i) => (
+                  <div key={i} style={{ padding: 12, border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 24 }}>{item.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{item.title}</div>
+                      <div style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>{item.desc}</div>
+                      <div style={{ fontSize: 11, marginTop: 4 }}>
+                        <span style={{ color: theme.textMuted }}>Náročnost: {item.effort}</span>
+                        <span style={{ marginLeft: 12 }}>{item.status}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {winvetTab === "csv" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, color: theme.textSecondary, lineHeight: 1.6 }}>
+                  <strong>Postup:</strong> V programu WinVet → Přehledy → Přehled majitelů a zvířat → Exportovat do souboru (CSV/TXT). Nahrajte soubor níže.
+                </div>
+                <div style={{ padding: 30, border: `2px dashed ${theme.border}`, borderRadius: theme.radius, textAlign: "center", cursor: "pointer", background: theme.bg }}
+                  onClick={() => alert("V produkci se zde otevře dialog pro nahrání CSV souboru z WinVet exportu. Data se naparsují a naimportují do VetBooku.")}>
+                  <Icon name="upload" size={32} />
+                  <div style={{ fontWeight: 700, marginTop: 8 }}>Klikněte pro nahrání CSV z WinVet</div>
+                  <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>Podporované formáty: CSV, TXT (oddělovač ; nebo TAB)</div>
+                </div>
+                <div style={{ fontSize: 12, color: theme.textSecondary }}>
+                  Očekávaná struktura: <code style={{ fontFamily: MONO, background: theme.bg, padding: "2px 6px", borderRadius: 3 }}>Příjmení;Jméno;Telefon;Email;Zvíře;Druh;Plemeno;Čip</code>
+                </div>
+              </div>
+            )}
+
+            {winvetTab === "db" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.warning }}>
+                  ⚠️ Přímý přístup k DB vyžaduje Firebird klienta a síťovou viditelnost serveru WinVet. Toto je pro pokročilou konfiguraci.
+                </div>
+                <Input label="Host (IP adresa WinVet serveru)" placeholder="192.168.1.100" />
+                <div style={{ display: "flex", gap: 12 }}>
+                  <div style={{ flex: 1 }}><Input label="Port" placeholder="3050" /></div>
+                  <div style={{ flex: 2 }}><Input label="Cesta k databázi" placeholder="C:\WinVet\Data\WINVET.FDB" /></div>
+                </div>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <div style={{ flex: 1 }}><Input label="Uživatel" placeholder="SYSDBA" /></div>
+                  <div style={{ flex: 1 }}><Input label="Heslo" type="password" placeholder="•••••" /></div>
+                </div>
+                <Btn variant="outline" icon="database" onClick={() => alert("V produkci se provede test připojení k Firebird DB a synchronizace klientů/pacientů.")}>Otestovat připojení</Btn>
+              </div>
+            )}
+
+            {winvetTab === "gcal" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 13, color: theme.textSecondary, lineHeight: 1.6 }}>
+                  WinVet podporuje synchronizaci s <strong>Google Kalendářem</strong>. VetBook může číst stejný kalendář a zobrazovat termíny z WinVet vedle online objednávek.
+                </div>
+                <Input label="Google Calendar ID" placeholder="xxxxx@group.calendar.google.com" />
+                <Input label="API klíč" placeholder="AIza..." />
+                <Btn variant="outline" icon="calendar" onClick={() => alert("V produkci se napojí na Google Calendar API a provede sync.")}>Synchronizovat s Google Calendar</Btn>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ─── PUBLIC VIEW ───
+function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
   const [step, setStep] = useState("login");
   const [client, setClient] = useState(null);
-  const [regForm, setRegForm] = useState({ firstName: "", lastName: "", phone: "", email: "" });
-  const [form, setForm] = useState({ petId: "", procedureId: "", date: TOMORROW, time: "09:00", note: "" });
   const [loginEmail, setLoginEmail] = useState("");
-  const myPets = pets.filter((p) => p.clientId === client?.id);
+  const [form, setForm] = useState({ petId: "", procedureId: "", date: TOMORROW, time: "09:00", note: "", doctorId: "" });
+  const [showSlotFinder, setShowSlotFinder] = useState(false);
+  const myPets = pets.filter(p => p.clientId === client?.id);
 
-  const handleLogin = () => {
-    const found = clients.find((c) => c.email === loginEmail);
-    if (found) { setClient(found); setStep("form"); }
-    else alert("Účet nenalezen. Zaregistrujte se prosím.");
-  };
-
+  const handleLogin = () => { const f = clients.find(c => c.email === loginEmail); if (f) { setClient(f); setStep("form"); } else alert("Účet nenalezen."); };
   const handleSubmit = () => {
-    const proc = PROCEDURES.find((p) => p.id === form.procedureId);
-    onSubmitRequest({ id: generateId(), clientId: client.id, petId: form.petId, procedureId: form.procedureId, date: form.date, time: form.time, duration: proc?.duration || 20, status: "pending", note: form.note, createdBy: "public" });
+    const proc = PROCEDURES.find(p => p.id === form.procedureId);
+    onSubmitRequest({ id: generateId(), clientId: client.id, petId: form.petId, procedureId: form.procedureId, doctorId: form.doctorId || config.doctors[0]?.id, date: form.date, time: form.time, duration: proc?.duration || 20, status: "pending", note: form.note, createdBy: "public" });
     setStep("done");
   };
 
@@ -278,35 +558,27 @@ function PublicView({ onSubmitRequest, clients, pets }) {
     <div style={{ maxWidth: 600, margin: "0 auto", padding: "40px 20px" }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <div style={{ fontSize: 48, marginBottom: 8 }}>🐾</div>
-        <h1 style={{ fontSize: 24, fontWeight: 800, fontFamily: FONT, marginBottom: 4 }}>Veterinární ordinace</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{config.clinicName}</h1>
         <p style={{ color: theme.textSecondary, fontSize: 15 }}>Online objednání na vyšetření</p>
       </div>
 
       {step === "login" && (
         <Card title="Přihlášení" accent={theme.accent}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Input label="E-mail" required icon="user" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="vas@email.cz" />
+            <Input label="E-mail" required icon="user" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} placeholder="vas@email.cz" />
             <Btn onClick={handleLogin} style={{ width: "100%" }}>Přihlásit se</Btn>
-            <div style={{ textAlign: "center", fontSize: 13, color: theme.textMuted }}>Nemáte účet?{" "}<span onClick={() => setStep("register")} style={{ color: theme.accent, cursor: "pointer", fontWeight: 600 }}>Zaregistrujte se</span></div>
-            <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.warning }}>💡 Demo: použijte <strong>jana@email.cz</strong>, <strong>petr@email.cz</strong>, <strong>marie@email.cz</strong> nebo <strong>tomas@email.cz</strong></div>
+            <div style={{ textAlign: "center", fontSize: 13, color: theme.textMuted }}>Nemáte účet? <span onClick={() => setStep("register")} style={{ color: theme.accent, cursor: "pointer", fontWeight: 600 }}>Zaregistrujte se</span></div>
+            <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.warning }}>💡 Demo: <strong>jana@email.cz</strong>, <strong>petr@email.cz</strong>, <strong>marie@email.cz</strong>, <strong>tomas@email.cz</strong></div>
           </div>
         </Card>
       )}
 
       {step === "register" && (
-        <Card title="Registrace nového klienta" accent={theme.accent}>
+        <Card title="Registrace" accent={theme.accent}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}><Input label="Jméno" required value={regForm.firstName} onChange={(e) => setRegForm({ ...regForm, firstName: e.target.value })} /></div>
-              <div style={{ flex: 1 }}><Input label="Příjmení" required value={regForm.lastName} onChange={(e) => setRegForm({ ...regForm, lastName: e.target.value })} /></div>
-            </div>
-            <Input label="Telefon" required icon="phone" value={regForm.phone} onChange={(e) => setRegForm({ ...regForm, phone: e.target.value })} />
-            <Input label="E-mail" required icon="user" value={regForm.email} onChange={(e) => setRegForm({ ...regForm, email: e.target.value })} />
-            <div style={{ padding: 12, background: theme.accentLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.accent }}>ℹ️ Po registraci budete moci přidávat své zvířata a odesílat žádosti o termín. Registrace podléhá schválení recepcí.</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant="ghost" onClick={() => setStep("login")}>← Zpět</Btn>
-              <Btn onClick={() => { alert("Registrace odeslána ke schválení!"); setStep("login"); }} style={{ flex: 1 }}>Registrovat</Btn>
-            </div>
+            <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Input label="Jméno" required /></div><div style={{ flex: 1 }}><Input label="Příjmení" required /></div></div>
+            <Input label="Telefon" required icon="phone" /><Input label="E-mail" required icon="user" />
+            <div style={{ display: "flex", gap: 8 }}><Btn variant="ghost" onClick={() => setStep("login")}>← Zpět</Btn><Btn onClick={() => { alert("Registrace odeslána!"); setStep("login"); }} style={{ flex: 1 }}>Registrovat</Btn></div>
           </div>
         </Card>
       )}
@@ -314,30 +586,33 @@ function PublicView({ onSubmitRequest, clients, pets }) {
       {step === "form" && (
         <Card title={`Žádost o termín — ${client.firstName} ${client.lastName}`} accent={theme.accent}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Zvíře <span style={{ color: theme.danger }}>*</span></label>
-              <select value={form.petId} onChange={(e) => setForm({ ...form, petId: e.target.value })} style={{ padding: "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, background: "white" }}>
-                <option value="">— vyberte —</option>
-                {myPets.map((p) => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species} — {p.breed})</option>)}
-              </select>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Procedura <span style={{ color: theme.danger }}>*</span></label>
-              <select value={form.procedureId} onChange={(e) => setForm({ ...form, procedureId: e.target.value })} style={{ padding: "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, background: "white" }}>
-                <option value="">— vyberte typ vyšetření —</option>
-                {["prevence", "diagnostika", "chirurgie", "specialni", "ostatni"].map((cat) => (
-                  <optgroup key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)}>
-                    {PROCEDURES.filter((p) => p.category === cat && p.id !== "emergency").map((p) => (<option key={p.id} value={p.id}>{p.name} ({p.duration} min)</option>))}
-                  </optgroup>
-                ))}
-              </select>
-            </div>
+            <Select label="Zvíře" required value={form.petId} onChange={e => setForm({ ...form, petId: e.target.value })}>
+              <option value="">— vyberte —</option>
+              {myPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}
+            </Select>
+            <Select label="Procedura" required value={form.procedureId} onChange={e => setForm({ ...form, procedureId: e.target.value })}>
+              <option value="">— vyberte typ vyšetření —</option>
+              {["prevence", "diagnostika", "chirurgie", "specialni", "ostatni"].map(cat =>
+                <optgroup key={cat} label={cat.charAt(0).toUpperCase() + cat.slice(1)}>
+                  {PROCEDURES.filter(p => p.category === cat && p.id !== "emergency").map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration} min)</option>)}
+                </optgroup>
+              )}
+            </Select>
+            <Select label="Preferovaný lékař (nepovinné)" value={form.doctorId} onChange={e => setForm({ ...form, doctorId: e.target.value })}>
+              <option value="">Bez preference</option>
+              {config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </Select>
+
+            {form.procedureId && (
+              <Btn variant="outline" icon="search" onClick={() => setShowSlotFinder(true)} style={{ width: "100%" }}>🔍 Najít volný termín automaticky</Btn>
+            )}
+
             <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}><Input label="Preferovaný den" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} min={TOMORROW} /></div>
-              <div style={{ flex: 1 }}><Input label="Preferovaný čas" type="time" required value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} min="07:00" max="17:00" step="900" /></div>
+              <div style={{ flex: 1 }}><Input label="Preferovaný den" type="date" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} min={TOMORROW} /></div>
+              <div style={{ flex: 1 }}><Input label="Preferovaný čas" type="time" required value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} min="07:00" max="17:00" step="900" /></div>
             </div>
-            <Input label="Popis problému / poznámka" textarea icon="edit" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Popište příznaky, jak dlouho trvají..." />
-            <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.warning }}>⚠️ Jedná se o <strong>žádost</strong> — termín bude potvrzen recepcí. Při akutních stavech volejte přímo!</div>
+            <Input label="Popis problému" textarea icon="edit" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="Popište příznaky..." />
+            <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.warning }}>⚠️ Jedná se o <strong>žádost</strong> — termín potvrdí recepce.</div>
             <div style={{ display: "flex", gap: 8 }}>
               <Btn variant="ghost" onClick={() => { setClient(null); setStep("login"); }}>← Odhlásit</Btn>
               <Btn icon="send" disabled={!form.petId || !form.procedureId} onClick={handleSubmit} style={{ flex: 1 }}>Odeslat žádost</Btn>
@@ -351,240 +626,179 @@ function PublicView({ onSubmitRequest, clients, pets }) {
           <div style={{ textAlign: "center", padding: "20px 0" }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
             <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Žádost odeslána!</h2>
-            <p style={{ color: theme.textSecondary, fontSize: 14, marginBottom: 20 }}>Recepce vaši žádost posoudí a potvrdí termín. Budete informováni e-mailem.</p>
-            <Btn onClick={() => { setForm({ petId: "", procedureId: "", date: TOMORROW, time: "09:00", note: "" }); setStep("form"); }}>Odeslat další žádost</Btn>
+            <p style={{ color: theme.textSecondary, marginBottom: 20 }}>Recepce potvrdí termín e-mailem.</p>
+            <Btn onClick={() => { setForm({ petId: "", procedureId: "", date: TOMORROW, time: "09:00", note: "", doctorId: "" }); setStep("form"); }}>Další žádost</Btn>
           </div>
         </Card>
       )}
+
+      {showSlotFinder && <FreeSlotModal config={config} appointments={appointments} onClose={() => setShowSlotFinder(false)}
+        onSelect={s => { setForm({ ...form, date: s.date, time: s.time, doctorId: s.doctorId }); setShowSlotFinder(false); }} />}
     </div>
   );
 }
 
-// ════════════════════════════════════════
-//  RECEPTION VIEW
-// ════════════════════════════════════════
-function ReceptionView({ appointments, clients, pets, onAction, onAddApt }) {
+// ─── RECEPTION VIEW ───
+function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt }) {
   const [tab, setTab] = useState("today");
-  const [showNewModal, setShowNewModal] = useState(false);
-  const [newApt, setNewApt] = useState({ clientId: "", petId: "", procedureId: "", date: TODAY, time: "08:00", note: "" });
+  const [showNew, setShowNew] = useState(false);
+  const [showSlotFinder, setShowSlotFinder] = useState(false);
+  const [newApt, setNewApt] = useState({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "08:00", note: "" });
+  const todayApts = appointments.filter(a => a.date === TODAY).sort((a, b) => a.time.localeCompare(b.time));
+  const pendingApts = appointments.filter(a => a.status === "pending");
+  const waitingApts = todayApts.filter(a => a.status === "arrived");
+  const inProgress = todayApts.filter(a => a.status === "in_progress");
+  const selPets = pets.filter(p => p.clientId === newApt.clientId);
 
-  const todayApts = appointments.filter((a) => a.date === TODAY).sort((a, b) => a.time.localeCompare(b.time));
-  const pendingApts = appointments.filter((a) => a.status === "pending").sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
-  const waitingApts = todayApts.filter((a) => a.status === "arrived");
-  const inProgressApts = todayApts.filter((a) => a.status === "in_progress");
-  const selectedPets = pets.filter((p) => p.clientId === newApt.clientId);
-
-  const tabs = [
-    { id: "today", label: `Dnes (${todayApts.length})` },
-    { id: "pending", label: `Ke schválení (${pendingApts.length})`, alert: pendingApts.length > 0 },
-    { id: "all", label: "Vše" },
-  ];
-
-  const handleNewSave = () => {
-    const proc = PROCEDURES.find((p) => p.id === newApt.procedureId);
+  const handleSave = () => {
+    const proc = PROCEDURES.find(p => p.id === newApt.procedureId);
     onAddApt({ id: generateId(), ...newApt, duration: proc?.duration || 20, status: "confirmed", createdBy: "reception" });
-    setShowNewModal(false);
-    setNewApt({ clientId: "", petId: "", procedureId: "", date: TODAY, time: "08:00", note: "" });
+    setShowNew(false); setNewApt({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "08:00", note: "" });
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <StatBox label="Dnes celkem" value={todayApts.length} color={theme.accent} icon="📋" />
-        <StatBox label="V čekárně" value={waitingApts.length} color={theme.warning} icon="🏠" />
-        <StatBox label="U lékaře" value={inProgressApts.length} color={theme.purple} icon="🩺" />
+        <StatBox label="Dnes" value={todayApts.length} color={theme.accent} icon="📋" />
+        <StatBox label="Čekárna" value={waitingApts.length} color={theme.warning} icon="🏠" />
+        <StatBox label="U lékaře" value={inProgress.length} color={theme.purple} icon="🩺" />
         <StatBox label="Ke schválení" value={pendingApts.length} color={theme.danger} icon="⏳" />
       </div>
 
       {waitingApts.length > 0 && (
         <Card accent={theme.warning} noPad>
-          <div style={{ padding: "12px 20px", background: theme.warningLight, borderBottom: `1px solid ${theme.warning}30` }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: theme.warning }}>🏠 Čekárna — {waitingApts.length} pacient{waitingApts.length > 1 ? "ů" : ""}</span>
-          </div>
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            {waitingApts.map((a) => <AptRow key={a.id} apt={a} clients={clients} pets={pets} onAction={onAction} role="reception" />)}
-          </div>
+          <div style={{ padding: "12px 20px", background: theme.warningLight }}><span style={{ fontWeight: 700, color: theme.warning }}>🏠 Čekárna — {waitingApts.length}</span></div>
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>{waitingApts.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="reception" />)}</div>
         </Card>
       )}
 
-      <div style={{ display: "flex", gap: 4, borderBottom: `2px solid ${theme.border}`, paddingBottom: 0 }}>
-        {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 20px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.accent : "transparent"}`, background: "none", color: tab === t.id ? theme.accent : theme.textSecondary, fontSize: 14, fontWeight: 700, fontFamily: FONT, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
-            {t.label}
-            {t.alert && <span style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: theme.danger }} />}
+      <div style={{ display: "flex", gap: 4, borderBottom: `2px solid ${theme.border}`, alignItems: "center" }}>
+        {[{ id: "today", l: `Dnes (${todayApts.length})` }, { id: "pending", l: `Ke schválení (${pendingApts.length})`, alert: pendingApts.length > 0 }, { id: "all", l: "Vše" }].map(t =>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 20px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.accent : "transparent"}`, background: "none", color: tab === t.id ? theme.accent : theme.textSecondary, fontSize: 14, fontWeight: 700, cursor: "pointer", position: "relative" }}>
+            {t.l}{t.alert && <span style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: theme.danger }} />}
           </button>
-        ))}
+        )}
         <div style={{ flex: 1 }} />
-        <Btn icon="plus" onClick={() => setShowNewModal(true)} style={{ alignSelf: "center" }}>Nová objednávka</Btn>
+        <Btn small icon="search" variant="outline" onClick={() => setShowSlotFinder(true)} style={{ marginRight: 6 }}>Volné termíny</Btn>
+        <Btn icon="plus" onClick={() => setShowNew(true)}>Nová objednávka</Btn>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {(tab === "today" ? todayApts : tab === "pending" ? pendingApts : appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)))
-          .map((a) => <AptRow key={a.id} apt={a} clients={clients} pets={pets} onAction={onAction} role="reception" />)}
-        {((tab === "today" && todayApts.length === 0) || (tab === "pending" && pendingApts.length === 0)) && <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné záznamy</div>}
+          .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="reception" />)}
+        {((tab === "today" && !todayApts.length) || (tab === "pending" && !pendingApts.length)) && <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné záznamy</div>}
       </div>
 
-      {showNewModal && (
-        <Modal title="Nová objednávka" subtitle="Recepce — přímé objednání" onClose={() => setShowNewModal(false)}
-          footer={<><Btn variant="ghost" onClick={() => setShowNewModal(false)}>Zrušit</Btn><Btn variant="success" icon="check" disabled={!newApt.clientId || !newApt.petId || !newApt.procedureId} onClick={handleNewSave}>Uložit</Btn></>}>
+      {showNew && (
+        <Modal title="Nová objednávka" onClose={() => setShowNew(false)} footer={<><Btn variant="ghost" onClick={() => setShowNew(false)}>Zrušit</Btn><Btn variant="success" icon="check" disabled={!newApt.clientId || !newApt.petId || !newApt.procedureId} onClick={handleSave}>Uložit</Btn></>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Klient *</label>
-              <select value={newApt.clientId} onChange={(e) => setNewApt({ ...newApt, clientId: e.target.value, petId: "" })} style={{ padding: "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, background: "white" }}>
-                <option value="">— vyberte klienta —</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{c.lastName} {c.firstName} ({c.phone})</option>)}
-              </select>
-            </div>
-            {newApt.clientId && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Zvíře *</label>
-                <select value={newApt.petId} onChange={(e) => setNewApt({ ...newApt, petId: e.target.value })} style={{ padding: "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, background: "white" }}>
-                  <option value="">— vyberte zvíře —</option>
-                  {selectedPets.map((p) => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}
-                </select>
-              </div>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Procedura *</label>
-              <select value={newApt.procedureId} onChange={(e) => setNewApt({ ...newApt, procedureId: e.target.value })} style={{ padding: "8px 12px", border: `1.5px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 14, fontFamily: FONT, background: "white" }}>
-                <option value="">— vyberte —</option>
-                {PROCEDURES.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.duration} min)</option>)}
-              </select>
-            </div>
+            <Select label="Klient" required value={newApt.clientId} onChange={e => setNewApt({ ...newApt, clientId: e.target.value, petId: "" })}><option value="">— vyberte —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>)}</Select>
+            {newApt.clientId && <Select label="Zvíře" required value={newApt.petId} onChange={e => setNewApt({ ...newApt, petId: e.target.value })}><option value="">— vyberte —</option>{selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}</Select>}
+            <Select label="Procedura" required value={newApt.procedureId} onChange={e => setNewApt({ ...newApt, procedureId: e.target.value })}><option value="">— vyberte —</option>{PROCEDURES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}</Select>
+            <Select label="Lékař" value={newApt.doctorId} onChange={e => setNewApt({ ...newApt, doctorId: e.target.value })}><option value="">— automaticky —</option>{config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
             <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}><Input label="Datum" type="date" value={newApt.date} onChange={(e) => setNewApt({ ...newApt, date: e.target.value })} /></div>
-              <div style={{ flex: 1 }}><Input label="Čas" type="time" value={newApt.time} onChange={(e) => setNewApt({ ...newApt, time: e.target.value })} min="07:00" max="17:00" step="900" /></div>
+              <div style={{ flex: 1 }}><Input label="Datum" type="date" value={newApt.date} onChange={e => setNewApt({ ...newApt, date: e.target.value })} /></div>
+              <div style={{ flex: 1 }}><Input label="Čas" type="time" value={newApt.time} onChange={e => setNewApt({ ...newApt, time: e.target.value })} step="900" /></div>
             </div>
-            <Input label="Poznámka" textarea value={newApt.note} onChange={(e) => setNewApt({ ...newApt, note: e.target.value })} placeholder="Důvod, příprava..." />
+            <Input label="Poznámka" textarea value={newApt.note} onChange={e => setNewApt({ ...newApt, note: e.target.value })} />
           </div>
         </Modal>
       )}
+
+      {showSlotFinder && <FreeSlotModal config={config} appointments={appointments} onClose={() => setShowSlotFinder(false)}
+        onSelect={s => { setNewApt({ ...newApt, date: s.date, time: s.time, doctorId: s.doctorId }); setShowSlotFinder(false); setShowNew(true); }} />}
     </div>
   );
 }
 
-// ════════════════════════════════════════
-//  DOCTOR VIEW
-// ════════════════════════════════════════
-function DoctorView({ appointments, clients, pets, onAction }) {
-  const todayApts = appointments.filter((a) => a.date === TODAY).sort((a, b) => a.time.localeCompare(b.time));
-  const waiting = todayApts.filter((a) => a.status === "arrived");
-  const inProgress = todayApts.filter((a) => a.status === "in_progress");
-  const upcoming = todayApts.filter((a) => a.status === "confirmed");
-  const completed = todayApts.filter((a) => a.status === "completed");
+// ─── DOCTOR VIEW ───
+function DoctorView({ appointments, clients, pets, config, onAction }) {
+  const [selDoc, setSelDoc] = useState(config.doctors[0]?.id || "");
+  const todayApts = appointments.filter(a => a.date === TODAY && a.doctorId === selDoc).sort((a, b) => a.time.localeCompare(b.time));
+  const waiting = todayApts.filter(a => a.status === "arrived");
+  const inProg = todayApts.filter(a => a.status === "in_progress");
+  const upcoming = todayApts.filter(a => a.status === "confirmed");
+  const completed = todayApts.filter(a => a.status === "completed");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <StatBox label="V čekárně" value={waiting.length} color={theme.warning} icon="🏠" />
-        <StatBox label="Právě ošetřuji" value={inProgress.length} color={theme.purple} icon="🩺" />
-        <StatBox label="Další v pořadí" value={upcoming.length} color={theme.accent} icon="📋" />
-        <StatBox label="Hotovo dnes" value={completed.length} color={theme.success} icon="✔" />
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: theme.textSecondary }}>Lékař:</span>
+        {config.doctors.map(d => (
+          <button key={d.id} onClick={() => setSelDoc(d.id)} style={{ padding: "6px 14px", border: `2px solid ${selDoc === d.id ? d.color : theme.border}`, borderRadius: 20, background: selDoc === d.id ? d.color + "15" : "white", color: selDoc === d.id ? d.color : theme.textMuted, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{d.name}</button>
+        ))}
       </div>
-
-      {inProgress.length > 0 && (
-        <Card accent={theme.purple} title="🩺 Právě u mě">
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {inProgress.map((a) => <AptRow key={a.id} apt={a} clients={clients} pets={pets} onAction={onAction} role="doctor" />)}
-          </div>
-        </Card>
-      )}
-
-      {waiting.length > 0 && (
-        <Card accent={theme.warning} title={`🏠 Čekárna (${waiting.length})`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {waiting.map((a) => <AptRow key={a.id} apt={a} clients={clients} pets={pets} onAction={onAction} role="doctor" />)}
-          </div>
-        </Card>
-      )}
-
-      <Card title={`📋 Nadcházející objednávky (${upcoming.length})`}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {upcoming.map((a) => <AptRow key={a.id} apt={a} clients={clients} pets={pets} onAction={onAction} role="doctor" />)}
-          {upcoming.length === 0 && <div style={{ padding: 20, textAlign: "center", color: theme.textMuted }}>Žádné další objednávky</div>}
-        </div>
-      </Card>
-
-      {completed.length > 0 && (
-        <Card title={`✔ Dokončené dnes (${completed.length})`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, opacity: 0.7 }}>
-            {completed.map((a) => <AptRow key={a.id} apt={a} clients={clients} pets={pets} onAction={onAction} role="doctor" />)}
-          </div>
-        </Card>
-      )}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <StatBox label="Čekárna" value={waiting.length} color={theme.warning} icon="🏠" />
+        <StatBox label="U mě" value={inProg.length} color={theme.purple} icon="🩺" />
+        <StatBox label="Další" value={upcoming.length} color={theme.accent} icon="📋" />
+        <StatBox label="Hotovo" value={completed.length} color={theme.success} icon="✔" />
+      </div>
+      {inProg.length > 0 && <Card accent={theme.purple} title="🩺 Právě u mě"><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{inProg.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}</div></Card>}
+      {waiting.length > 0 && <Card accent={theme.warning} title={`🏠 Čekárna (${waiting.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{waiting.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}</div></Card>}
+      <Card title={`📋 Nadcházející (${upcoming.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{upcoming.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}{!upcoming.length && <div style={{ padding: 20, textAlign: "center", color: theme.textMuted }}>Žádné další</div>}</div></Card>
+      {completed.length > 0 && <Card title={`✔ Hotovo (${completed.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 6, opacity: 0.7 }}>{completed.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}</div></Card>}
     </div>
   );
 }
 
-// ════════════════════════════════════════
-//  MANAGER VIEW
-// ════════════════════════════════════════
-function ManagerView({ appointments, clients, pets }) {
-  const todayApts = appointments.filter((a) => a.date === TODAY);
-  const totalMinutes = todayApts.reduce((s, a) => s + a.duration, 0);
-  const byProc = PROCEDURES.map((p) => ({ ...p, count: appointments.filter((a) => a.procedureId === p.id).length })).filter((p) => p.count > 0).sort((a, b) => b.count - a.count);
-  const byStatus = Object.entries(STATUSES).map(([key, val]) => ({ key, ...val, count: appointments.filter((a) => a.status === key).length })).filter((s) => s.count > 0);
-  const publicRequests = appointments.filter((a) => a.createdBy === "public").length;
-  const receptionCreated = appointments.filter((a) => a.createdBy === "reception").length;
-  const avgDuration = appointments.length ? Math.round(appointments.reduce((s, a) => s + a.duration, 0) / appointments.length) : 0;
-  const uniqueClients = new Set(appointments.map((a) => a.clientId)).size;
-  const maxCount = Math.max(...byProc.map((p) => p.count), 1);
+// ─── MANAGER VIEW ───
+function ManagerView({ appointments, clients, config }) {
+  const todayApts = appointments.filter(a => a.date === TODAY);
+  const totalMin = todayApts.reduce((s, a) => s + a.duration, 0);
+  const byProc = PROCEDURES.map(p => ({ ...p, count: appointments.filter(a => a.procedureId === p.id).length })).filter(p => p.count > 0).sort((a, b) => b.count - a.count);
+  const byStatus = Object.entries(STATUSES).map(([k, v]) => ({ k, ...v, count: appointments.filter(a => a.status === k).length })).filter(s => s.count > 0);
+  const byDoc = config.doctors.map(d => ({ ...d, count: appointments.filter(a => a.doctorId === d.id).length, minutes: appointments.filter(a => a.doctorId === d.id).reduce((s, a) => s + a.duration, 0) }));
+  const mx = Math.max(...byProc.map(p => p.count), 1);
+  const publicReq = appointments.filter(a => a.createdBy === "public").length;
+  const recCreated = appointments.filter(a => a.createdBy === "reception").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <StatBox label="Celkem objednávek" value={appointments.length} color={theme.accent} icon="📊" />
-        <StatBox label="Dnešní obsazenost" value={`${Math.round((totalMinutes / 540) * 100)}%`} color={theme.success} icon="📈" />
-        <StatBox label="Unikátních klientů" value={uniqueClients} color={theme.purple} icon="👥" />
-        <StatBox label="Ø délka návštěvy" value={`${avgDuration}'`} color={theme.warning} icon="⏱" />
+        <StatBox label="Celkem" value={appointments.length} color={theme.accent} icon="📊" />
+        <StatBox label="Obsazenost dnes" value={`${Math.round((totalMin / 540) * 100)}%`} color={theme.success} icon="📈" />
+        <StatBox label="Klientů" value={new Set(appointments.map(a => a.clientId)).size} color={theme.purple} icon="👥" />
+        <StatBox label="Ø délka" value={`${appointments.length ? Math.round(appointments.reduce((s, a) => s + a.duration, 0) / appointments.length) : 0}'`} color={theme.warning} icon="⏱" />
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 16 }}>
-        <Card title="📊 Procedury — četnost">
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {byProc.map((p) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, minWidth: 160, color: theme.text }}>{p.name}</span>
-                <div style={{ flex: 1, height: 22, background: theme.bg, borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${(p.count / maxCount) * 100}%`, background: p.color + "40", borderRadius: 4, transition: "width 0.5s ease", display: "flex", alignItems: "center", paddingLeft: 8 }}>
-                    <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: p.color }}>{p.count}</span>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+        <Card title="📊 Procedury">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {byProc.map(p => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, minWidth: 140 }}>{p.name}</span>
+                <div style={{ flex: 1, height: 20, background: theme.bg, borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(p.count / mx) * 100}%`, background: p.color + "40", borderRadius: 4, display: "flex", alignItems: "center", paddingLeft: 6 }}>
+                    <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: p.color }}>{p.count}</span>
                   </div>
                 </div>
               </div>
             ))}
           </div>
         </Card>
-
-        <Card title="📈 Stavy objednávek">
+        <Card title="👨‍⚕️ Vytížení lékařů">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {byStatus.map((s) => (
-              <div key={s.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", background: s.bg, borderRadius: theme.radiusSm }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: s.color, display: "flex", alignItems: "center", gap: 6 }}><span>{s.icon}</span> {s.label}</span>
-                <span style={{ fontFamily: MONO, fontSize: 16, fontWeight: 800, color: s.color }}>{s.count}</span>
+            {byDoc.map(d => (
+              <div key={d.id} style={{ padding: "10px 12px", background: d.color + "08", borderRadius: theme.radiusSm, borderLeft: `3px solid ${d.color}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontWeight: 600, color: d.color }}>{d.name}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 800, color: d.color }}>{d.count}</span>
+                </div>
+                <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 2 }}>{d.minutes} minut celkem</div>
               </div>
             ))}
           </div>
         </Card>
-
-        <Card title="📬 Zdroj objednávek">
-          <div style={{ display: "flex", gap: 20, alignItems: "center", justifyContent: "center", padding: "20px 0" }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 32, fontWeight: 800, fontFamily: MONO, color: theme.accent }}>{receptionCreated}</div>
-              <div style={{ fontSize: 12, color: theme.textSecondary, fontWeight: 600, marginTop: 4 }}>🖥️ Recepce</div>
-            </div>
-            <div style={{ width: 1, height: 50, background: theme.border }} />
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 32, fontWeight: 800, fontFamily: MONO, color: "#6366f1" }}>{publicRequests}</div>
-              <div style={{ fontSize: 12, color: theme.textSecondary, fontWeight: 600, marginTop: 4 }}>🌐 Online</div>
-            </div>
+        <Card title="📈 Stavy">
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {byStatus.map(s => <div key={s.k} style={{ display: "flex", justifyContent: "space-between", padding: "6px 12px", background: s.bg, borderRadius: theme.radiusSm }}><span style={{ fontSize: 13, fontWeight: 600, color: s.color }}>{s.icon} {s.label}</span><span style={{ fontFamily: MONO, fontSize: 16, fontWeight: 800, color: s.color }}>{s.count}</span></div>)}
           </div>
         </Card>
-
-        <Card title="⬇️ Export dat">
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <Btn variant="outline" icon="download" onClick={() => alert("Export CSV — v produkci by se generoval soubor")}>Exportovat objednávky (CSV)</Btn>
-            <Btn variant="outline" icon="download" onClick={() => alert("Export klientů — v produkci by se generoval soubor")}>Exportovat klienty (CSV)</Btn>
-            <Btn variant="outline" icon="bar" onClick={() => alert("Měsíční report — v produkci PDF sestava")}>Měsíční sestava (PDF)</Btn>
+        <Card title="📬 Zdroj">
+          <div style={{ display: "flex", gap: 20, justifyContent: "center", padding: "20px 0" }}>
+            <div style={{ textAlign: "center" }}><div style={{ fontSize: 32, fontWeight: 800, fontFamily: MONO, color: theme.accent }}>{recCreated}</div><div style={{ fontSize: 12, color: theme.textSecondary, fontWeight: 600, marginTop: 4 }}>🖥️ Recepce</div></div>
+            <div style={{ width: 1, height: 50, background: theme.border }} />
+            <div style={{ textAlign: "center" }}><div style={{ fontSize: 32, fontWeight: 800, fontFamily: MONO, color: "#6366f1" }}>{publicReq}</div><div style={{ fontSize: 12, color: theme.textSecondary, fontWeight: 600, marginTop: 4 }}>🌐 Online</div></div>
           </div>
         </Card>
       </div>
@@ -597,12 +811,14 @@ function ManagerView({ appointments, clients, pets }) {
 // ════════════════════════════════════════
 export default function VetApp() {
   const [role, setRole] = useState("reception");
-  const [appointments, setAppointments] = useState(DEMO_APPOINTMENTS);
+  const [appointments, setAppointments] = useState(DEMO_APTS);
   const [clients] = useState(DEMO_CLIENTS);
   const [pets] = useState(DEMO_PETS);
+  const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [showSettings, setShowSettings] = useState(false);
 
   const handleAction = (id, action) => {
-    setAppointments((prev) => prev.map((a) => {
+    setAppointments(prev => prev.map(a => {
       if (a.id !== id) return a;
       switch (action) {
         case "confirm": return { ...a, status: "confirmed" };
@@ -610,17 +826,14 @@ export default function VetApp() {
         case "arrive": return { ...a, status: "arrived", arrivalTime: new Date().toTimeString().slice(0, 5) };
         case "start": return { ...a, status: "in_progress" };
         case "complete": return { ...a, status: "completed" };
-        case "no_show": return { ...a, status: "no_show" };
-        case "reschedule": alert("Přesunutí — v produkci by se otevřel kalendář"); return a;
+        case "reschedule": alert("Přesunutí — v produkci kalendářový dialog"); return a;
         default: return a;
       }
     }));
   };
-
-  const handleAddApt = (apt) => setAppointments((prev) => [...prev, apt]);
-  const today = new Date();
-  const dateStr = today.toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long" });
+  const handleAdd = apt => setAppointments(prev => [...prev, apt]);
   const roleInfo = ROLES[role];
+  const dateStr = new Date().toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long" });
 
   return (
     <div style={{ minHeight: "100vh", background: theme.bg, fontFamily: FONT, color: theme.text }}>
@@ -629,33 +842,40 @@ export default function VetApp() {
         * { box-sizing: border-box; margin: 0; }
         @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
         ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        select:focus { outline: none; border-color: ${theme.accent} !important; }
+        select:focus, input:focus { outline: none; border-color: ${theme.accent} !important; }
       `}</style>
 
-      <header style={{ background: "white", borderBottom: `1px solid ${theme.border}`, padding: "0 28px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: theme.shadow, position: "sticky", top: 0, zIndex: 50, height: 60 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: `linear-gradient(135deg, ${roleInfo.color}, ${roleInfo.color}88)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{roleInfo.icon}</div>
+      <header style={{ background: "white", borderBottom: `1px solid ${theme.border}`, padding: "0 24px", display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: theme.shadow, position: "sticky", top: 0, zIndex: 50, height: 56 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 8, background: `linear-gradient(135deg, ${roleInfo.color}, ${roleInfo.color}88)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{roleInfo.icon}</div>
           <div>
-            <h1 style={{ fontSize: 16, fontWeight: 800, letterSpacing: "-0.02em" }}>VetBook <span style={{ fontWeight: 400, color: theme.textSecondary, fontSize: 14 }}>— {roleInfo.label}</span></h1>
-            <div style={{ fontSize: 12, color: theme.textMuted, display: "flex", alignItems: "center", gap: 4 }}><Icon name="calendar" size={12} /> {dateStr}</div>
+            <h1 style={{ fontSize: 15, fontWeight: 800, letterSpacing: "-0.02em" }}>VetBook <span style={{ fontWeight: 400, color: theme.textSecondary, fontSize: 13 }}>— {showSettings ? "Nastavení" : roleInfo.label}</span></h1>
+            <div style={{ fontSize: 11, color: theme.textMuted }}>{dateStr}</div>
           </div>
         </div>
-
-        <div style={{ display: "flex", gap: 3, background: theme.bg, padding: 3, borderRadius: 8 }}>
-          {Object.entries(ROLES).map(([key, r]) => (
-            <button key={key} onClick={() => setRole(key)} style={{ padding: "7px 14px", border: "none", borderRadius: 6, cursor: "pointer", background: role === key ? "white" : "transparent", boxShadow: role === key ? theme.shadow : "none", color: role === key ? r.color : theme.textMuted, fontSize: 13, fontWeight: 600, fontFamily: FONT, transition: "all 0.15s", display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ fontSize: 14 }}>{r.icon}</span>
-              <span style={{ display: role === key ? "inline" : "none" }}>{r.label}</span>
-            </button>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {!showSettings && (
+            <div style={{ display: "flex", gap: 2, background: theme.bg, padding: 3, borderRadius: 8 }}>
+              {Object.entries(ROLES).map(([key, r]) => (
+                <button key={key} onClick={() => setRole(key)} style={{ padding: "6px 12px", border: "none", borderRadius: 6, cursor: "pointer", background: role === key ? "white" : "transparent", boxShadow: role === key ? theme.shadow : "none", color: role === key ? r.color : theme.textMuted, fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4, transition: "all 0.15s" }}>
+                  <span style={{ fontSize: 13 }}>{r.icon}</span>
+                  <span style={{ display: role === key ? "inline" : "none" }}>{r.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setShowSettings(!showSettings)} style={{ padding: "6px 12px", border: `1.5px solid ${showSettings ? theme.purple : theme.border}`, borderRadius: 6, background: showSettings ? theme.purpleLight : "white", color: showSettings ? theme.purple : theme.textMuted, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600 }}>
+            <Icon name="settings" size={14} />{showSettings ? "Zavřít" : ""}
+          </button>
         </div>
       </header>
 
-      <main style={{ padding: "20px 28px", maxWidth: role === "public" ? 700 : 1200, margin: "0 auto" }}>
-        {role === "public" && <PublicView onSubmitRequest={handleAddApt} clients={clients} pets={pets} />}
-        {role === "reception" && <ReceptionView appointments={appointments} clients={clients} pets={pets} onAction={handleAction} onAddApt={handleAddApt} />}
-        {role === "doctor" && <DoctorView appointments={appointments} clients={clients} pets={pets} onAction={handleAction} />}
-        {role === "manager" && <ManagerView appointments={appointments} clients={clients} pets={pets} />}
+      <main style={{ padding: "20px 24px", maxWidth: role === "public" && !showSettings ? 700 : 1200, margin: "0 auto" }}>
+        {showSettings ? <SettingsView config={config} setConfig={setConfig} /> :
+          role === "public" ? <PublicView onSubmitRequest={handleAdd} clients={clients} pets={pets} config={config} appointments={appointments} /> :
+          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} /> :
+          role === "doctor" ? <DoctorView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} /> :
+          <ManagerView appointments={appointments} clients={clients} config={config} />}
       </main>
     </div>
   );
