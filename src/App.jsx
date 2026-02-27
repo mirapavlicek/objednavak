@@ -1104,6 +1104,257 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
   );
 }
 
+// ─── QUICK BOOK PARSER ───
+const CZ_DAYS_MAP = { "pondeli": 1, "pondelí": 1, "pondělí": 1, "po": 1, "utery": 2, "úterý": 2, "ut": 2, "streda": 3, "středa": 3, "st": 3, "ctvrtek": 4, "čtvrtek": 4, "ct": 4, "čt": 4, "patek": 5, "pátek": 5, "pa": 5, "pá": 5, "sobota": 6, "so": 6, "nedele": 7, "neděle": 7, "ne": 7, "zitra": -1, "zítra": -1, "pozitri": -2, "pozítří": -2 };
+const PROC_KEYWORDS = {
+  vaccination: ["vakc", "očko", "očkov"],
+  checkup: ["prohlíd", "prohlid", "prevenc", "kontrola"],
+  surgery_small: ["operac", "zákrok", "zakrok", "chirurg"],
+  surgery_large: ["velk", "velká operac"],
+  dental: ["dent", "zuby", "zub", "drápky", "drapky", "dráp", "drap"],
+  xray: ["rtg", "rentgen", "snímek", "snimek"],
+  ultrasound: ["ultra", "sono", "usg"],
+  blood_work: ["krev", "odběr", "odber", "labor", "rozbor"],
+  castration: ["kastr", "steriliz"],
+  dermatology: ["derma", "kůže", "kuze", "srst", "alergi"],
+  emergency: ["akut", "pohotov", "naléh", "naleh", "urgentní", "urgentni"],
+  followup: ["kontrol", "follow"],
+  euthanasia: ["eutan", "усып", "усыпл"],
+  other: [],
+};
+
+function parseQuickBook(text, clients, pets) {
+  const raw = text.trim();
+  if (!raw) return null;
+  const tokens = raw.split(/\s+/);
+  const used = new Set();
+  let result = { clientId: "", petId: "", manualName: "", manualPet: "", procedureId: "", date: "", time: "", isAcute: false, tokens: [], remaining: [] };
+
+  // 1) Extract time (HH:MM or H:MM or H.MM)
+  for (let i = 0; i < tokens.length; i++) {
+    const m = tokens[i].match(/^(\d{1,2})[:\.](\d{2})$/);
+    if (m) { result.time = `${m[1].padStart(2, "0")}:${m[2]}`; used.add(i); break; }
+    // also try bare hour like "14" if followed by nothing time-like
+    if (/^\d{1,2}$/.test(tokens[i]) && parseInt(tokens[i]) >= 6 && parseInt(tokens[i]) <= 23 && !tokens[i + 1]?.match(/^[:\.]?\d{2}$/)) {
+      // only treat as time if it looks like an hour (6-23)
+      const h = parseInt(tokens[i]);
+      if (h >= 6 && h <= 23) { result.time = `${String(h).padStart(2, "0")}:00`; used.add(i); break; }
+    }
+  }
+
+  // 2) Extract date — day names or DD.MM. or DD.MM.YYYY
+  for (let i = 0; i < tokens.length; i++) {
+    if (used.has(i)) continue;
+    const low = tokens[i].toLowerCase().replace(/[.,]/g, "");
+    // Czech day names
+    if (CZ_DAYS_MAP[low] !== undefined) {
+      const v = CZ_DAYS_MAP[low];
+      if (v === -1) { // zítra
+        result.date = dateStr(addDays(new Date(), 1)); used.add(i);
+      } else if (v === -2) { // pozítří
+        result.date = dateStr(addDays(new Date(), 2)); used.add(i);
+      } else { // weekday 1-7 (mon=1, sun=7)
+        const today = new Date();
+        const todayDow = today.getDay() === 0 ? 7 : today.getDay(); // 1=mon..7=sun
+        let diff = v - todayDow;
+        if (diff <= 0) diff += 7;
+        result.date = dateStr(addDays(today, diff)); used.add(i);
+      }
+      break;
+    }
+    // DD.MM. or DD.MM.YYYY
+    const dm = tokens[i].match(/^(\d{1,2})\.(\d{1,2})\.?(\d{2,4})?$/);
+    if (dm) {
+      const year = dm[3] ? (dm[3].length === 2 ? 2000 + parseInt(dm[3]) : parseInt(dm[3])) : new Date().getFullYear();
+      const d = new Date(year, parseInt(dm[2]) - 1, parseInt(dm[1]));
+      if (!isNaN(d.getTime())) { result.date = dateStr(d); used.add(i); break; }
+    }
+  }
+
+  // 3) Extract procedure by keywords
+  const unusedText = tokens.filter((_, i) => !used.has(i)).join(" ").toLowerCase();
+  let bestProc = null, bestProcLen = 0;
+  for (const [procId, keywords] of Object.entries(PROC_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (unusedText.includes(kw) && kw.length > bestProcLen) { bestProc = procId; bestProcLen = kw.length; }
+    }
+  }
+  if (bestProc) {
+    result.procedureId = bestProc;
+    // mark tokens that matched the keyword
+    for (let i = 0; i < tokens.length; i++) {
+      if (used.has(i)) continue;
+      const low = tokens[i].toLowerCase().replace(/[.,]/g, "");
+      for (const kw of (PROC_KEYWORDS[bestProc] || [])) {
+        if (low.includes(kw) || kw.includes(low)) { used.add(i); break; }
+      }
+    }
+  }
+
+  // 4) Try to match client — remaining tokens against clients
+  const nameTokens = tokens.filter((_, i) => !used.has(i)).map(t => t.toLowerCase().replace(/[.,]/g, ""));
+  if (nameTokens.length > 0) {
+    const norm = s => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    let matches = [];
+    for (const c of clients) {
+      const ln = norm(c.lastName), fn = norm(c.firstName);
+      let score = 0;
+      for (const t of nameTokens) {
+        const nt = norm(t);
+        if (ln === nt || fn === nt) score += 10;
+        else if (ln.startsWith(nt) || fn.startsWith(nt)) score += 5;
+        else if (ln.includes(nt) || fn.includes(nt)) score += 2;
+      }
+      if (score > 0) matches.push({ client: c, score });
+    }
+    matches.sort((a, b) => b.score - a.score);
+    if (matches.length === 1 || (matches.length > 1 && matches[0].score > matches[1].score)) {
+      result.clientId = matches[0].client.id;
+      // try to find pet
+      const cPets = pets.filter(p => p.clientId === result.clientId);
+      if (cPets.length === 1) result.petId = cPets[0].id;
+      else {
+        // try match pet name in remaining tokens
+        for (const p of cPets) {
+          const pn = norm(p.name);
+          for (const t of nameTokens) {
+            if (pn === norm(t) || pn.startsWith(norm(t))) { result.petId = p.id; break; }
+          }
+          if (result.petId) break;
+        }
+      }
+    }
+    // remaining as manual name
+    result.manualName = tokens.filter((_, i) => !used.has(i)).join(" ");
+  }
+
+  // 5) Determine acute
+  if (!result.date && !result.time) result.isAcute = true;
+
+  // Build token info for display
+  result.tokens = tokens.map((t, i) => {
+    if (result.time && t.match(/^(\d{1,2})[:\.](\d{2})$|^\d{1,2}$/) && used.has(i)) return { text: t, type: "time" };
+    const low = t.toLowerCase().replace(/[.,]/g, "");
+    if (CZ_DAYS_MAP[low] !== undefined && used.has(i)) return { text: t, type: "date" };
+    if (t.match(/^\d{1,2}\.\d{1,2}/) && used.has(i)) return { text: t, type: "date" };
+    if (used.has(i)) return { text: t, type: "procedure" };
+    if (result.clientId) return { text: t, type: "client" };
+    return { text: t, type: "name" };
+  });
+
+  return result;
+}
+
+// ─── QUICK BOOK BAR ───
+function QuickBookBar({ clients, pets, config, onBook }) {
+  const [text, setText] = useState("");
+  const [focused, setFocused] = useState(false);
+  const parsed = useMemo(() => parseQuickBook(text, clients, pets), [text, clients, pets]);
+  const client = parsed?.clientId ? clients.find(c => c.id === parsed.clientId) : null;
+  const pet = parsed?.petId ? pets.find(p => p.id === parsed.petId) : null;
+  const proc = parsed?.procedureId ? PROCEDURES.find(p => p.id === parsed.procedureId) : null;
+
+  const handleBook = () => {
+    if (!parsed || !parsed.manualName && !parsed.clientId) return;
+    const finalProc = proc || PROCEDURES.find(p => p.id === "other");
+    const apt = {
+      id: generateId(),
+      clientId: parsed.clientId || "",
+      petId: parsed.petId || "",
+      manualName: parsed.clientId ? "" : parsed.manualName,
+      manualPhone: "",
+      manualPet: "",
+      procedureId: finalProc.id,
+      doctorId: "",
+      date: parsed.isAcute ? TODAY : (parsed.date || TODAY),
+      time: parsed.isAcute ? new Date().toTimeString().slice(0, 5) : (parsed.time || "09:00"),
+      duration: finalProc.duration,
+      status: parsed.isAcute ? "arrived" : "confirmed",
+      note: parsed.isAcute ? "Akutní — rychlá objednávka" : "Rychlá objednávka",
+      createdBy: "reception",
+      ...(parsed.isAcute ? { arrivalTime: new Date().toTimeString().slice(0, 5) } : {}),
+    };
+    onBook(apt);
+    setText("");
+  };
+
+  const tokenColors = { time: "#7c3aed", date: "#059669", procedure: "#d97706", client: "#2563eb", name: "#64748b" };
+  const tokenLabels = { time: "čas", date: "datum", procedure: "procedura", client: "klient", name: "text" };
+
+  return (
+    <div style={{ background: "white", border: `2px solid ${focused ? theme.accent : theme.border}`, borderRadius: theme.radius, padding: 0, transition: "border-color 0.15s", boxShadow: focused ? `0 0 0 3px ${theme.accent}15` : "none" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px" }}>
+        <span style={{ fontSize: 18, flexShrink: 0 }}>⚡</span>
+        <input value={text} onChange={e => setText(e.target.value)} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+          onKeyDown={e => { if (e.key === "Enter" && parsed && (parsed.clientId || parsed.manualName)) handleBook(); }}
+          placeholder={'Černý drápky sobota 14:30 — nebo jen Novák pro akutní příjem...'}
+          style={{ flex: 1, border: "none", outline: "none", fontSize: 15, fontFamily: FONT, fontWeight: 500, background: "transparent", color: theme.text, letterSpacing: "-0.01em" }} />
+        {text && (
+          <button onClick={() => setText("")} style={{ border: "none", background: "none", color: theme.textMuted, cursor: "pointer", fontSize: 14, padding: 4 }}>✕</button>
+        )}
+        {parsed && (parsed.clientId || parsed.manualName) && (
+          <button onClick={handleBook}
+            style={{ padding: "6px 16px", border: "none", borderRadius: 6, background: parsed.isAcute ? theme.danger : theme.accent, color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", fontFamily: FONT, transition: "all 0.1s" }}
+            onMouseEnter={e => e.currentTarget.style.opacity = "0.85"} onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+            {parsed.isAcute ? "🚨 Akut" : "✓ Objednat"}
+          </button>
+        )}
+      </div>
+
+      {text && parsed && (
+        <div style={{ padding: "0 14px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+          {/* Token highlights */}
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {parsed.tokens.map((t, i) => (
+              <span key={i} style={{ padding: "2px 8px", borderRadius: 4, fontSize: 12, fontWeight: 600, background: tokenColors[t.type] + "12", color: tokenColors[t.type], border: `1px solid ${tokenColors[t.type]}25` }}>
+                {t.text} <span style={{ fontSize: 9, opacity: 0.7 }}>{tokenLabels[t.type]}</span>
+              </span>
+            ))}
+          </div>
+          {/* Parsed result summary */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 12 }}>
+            {client ? (
+              <span style={{ color: "#2563eb", fontWeight: 700 }}>👤 {client.lastName} {client.firstName}</span>
+            ) : parsed.manualName ? (
+              <span style={{ color: "#64748b", fontWeight: 600 }}>👤 {parsed.manualName} <span style={{ fontSize: 10, opacity: 0.7 }}>(ruční)</span></span>
+            ) : (
+              <span style={{ color: theme.textMuted }}>👤 —</span>
+            )}
+            {pet && <span style={{ color: "#2563eb" }}>🐾 {pet.name}</span>}
+            {proc ? (
+              <span style={{ color: proc.color, fontWeight: 600 }}>{proc.name} ({proc.duration}')</span>
+            ) : (
+              <span style={{ color: theme.textMuted }}>📋 Jiné (volný text)</span>
+            )}
+            {parsed.isAcute ? (
+              <span style={{ color: theme.danger, fontWeight: 800, background: theme.dangerLight, padding: "2px 8px", borderRadius: 4 }}>🚨 AKUTNÍ → čekárna</span>
+            ) : (
+              <>
+                {parsed.date && <span style={{ color: "#059669", fontWeight: 600, fontFamily: MONO }}>📅 {new Date(parsed.date + "T00:00").toLocaleDateString("cs-CZ", { weekday: "short", day: "numeric", month: "numeric" })}</span>}
+                {parsed.time && <span style={{ color: "#7c3aed", fontWeight: 700, fontFamily: MONO }}>🕐 {parsed.time}</span>}
+                {!parsed.date && parsed.time && <span style={{ color: theme.warning, fontSize: 11 }}>📅 dnes</span>}
+              </>
+            )}
+          </div>
+          {/* Hints */}
+          {!parsed.clientId && parsed.manualName && clients.length > 0 && (
+            <div style={{ fontSize: 11, color: theme.textMuted }}>💡 Klient nenalezen v číselníku — bude založen jako ruční záznam</div>
+          )}
+          {parsed.clientId && !parsed.petId && pets.filter(p => p.clientId === parsed.clientId).length > 1 && (
+            <div style={{ fontSize: 11, color: theme.warning }}>⚠️ Klient má více zvířat — bude potřeba vybrat ručně</div>
+          )}
+        </div>
+      )}
+
+      {!text && focused && (
+        <div style={{ padding: "4px 14px 10px", fontSize: 12, color: theme.textMuted, lineHeight: 1.6 }}>
+          <strong>Příklady:</strong> Černý drápky sobota 14:30 &bull; Nováková vakcinace zítra 10:00 &bull; Dvořák (= akut) &bull; Svobodová ultrazvuk pátek 9:00 &bull; Novák kontrola 15.3. 8:30
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── CALENDAR HELPERS ───
 const CZ_DAY_SHORT = ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"];
 const CZ_DAY_FULL = ["Neděle", "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota"];
@@ -1437,6 +1688,8 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
         <StatBox label="U lékaře" value={inProgress.length} color={theme.purple} icon="🩺" />
         <StatBox label="Ke schválení" value={pendingApts.length} color={theme.danger} icon="⏳" />
       </div>
+
+      <QuickBookBar clients={clients} pets={pets} config={config} onBook={onAddApt} />
 
       {waitingApts.length > 0 && (
         <Card accent={theme.warning} noPad>
