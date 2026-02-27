@@ -27,9 +27,14 @@ const ROLES = {
 const DEFAULT_CONFIG = {
   clinicName: "Veterinární klinika VetBook",
   openingHours: { mon: { open: "07:30", close: "18:00" }, tue: { open: "07:30", close: "18:00" }, wed: { open: "07:30", close: "18:00" }, thu: { open: "07:30", close: "18:00" }, fri: { open: "07:30", close: "16:00" }, sat: { open: "08:00", close: "12:00" }, sun: null },
-  slotInterval: 15,
+  slotInterval: 5,
   acuteBufferSlots: 3,
   acuteBufferSpacing: 90,
+  smsApiKey: "e435ed0c3c6ad1fc3b2a549dca750633286e4ac8",
+  smsSender: "",
+  smsOnConfirm: true,
+  smsOnReminder: true,
+  smsOnCancel: false,
   doctors: [
     { id: "d1", name: "MVDr. Jan Novák", specializations: ["chirurgie", "diagnostika", "prevence", "specialni", "akutni", "ostatni"], color: "#2563eb" },
     { id: "d2", name: "MVDr. Petra Králová", specializations: ["prevence", "diagnostika", "specialni", "ostatni"], color: "#059669" },
@@ -40,6 +45,13 @@ const DEFAULT_CONFIG = {
     { id: "b2", label: "Chirurgie", timeFrom: "10:00", timeTo: "13:00", categories: ["chirurgie"], doctorIds: ["d1", "d3"] },
     { id: "b3", label: "Odpolední ambulance", timeFrom: "13:00", timeTo: "16:00", categories: ["prevence", "diagnostika", "specialni", "ostatni"], doctorIds: ["d1", "d2"] },
     { id: "b4", label: "Diagnostika", timeFrom: "08:00", timeTo: "12:00", categories: ["diagnostika"], doctorIds: ["d2", "d3"] },
+  ],
+  employees: [
+    { id: "e1", name: "Admin", email: "admin@klinika.cz", role: "manager", pin: "1234" },
+    { id: "e2", name: "Jana Recepční", email: "jana@klinika.cz", role: "reception", pin: "5678" },
+    { id: "e3", name: "MVDr. Jan Novák", email: "novak@klinika.cz", role: "doctor", doctorId: "d1", pin: "1111" },
+    { id: "e4", name: "MVDr. Petra Králová", email: "kralova@klinika.cz", role: "doctor", doctorId: "d2", pin: "2222" },
+    { id: "e5", name: "MVDr. Tomáš Veselý", email: "vesely@klinika.cz", role: "doctor", doctorId: "d3", pin: "3333" },
   ],
 };
 
@@ -475,6 +487,187 @@ const generatePassword = () => {
   return pw;
 };
 
+// ─── INLINE SLOT PICKER ───
+function InlineSlotPicker({ config, appointments, procedureId, doctorId, onSelect, selectedDate, selectedTime }) {
+  const [viewDate, setViewDate] = useState(selectedDate || TOMORROW);
+  const proc = PROCEDURES.find(p => p.id === procedureId);
+  const slots = useMemo(() => proc ? findFreeSlots(config, appointments, procedureId, viewDate, viewDate, doctorId || null) : [], [proc, config, appointments, procedureId, viewDate, doctorId]);
+  if (!proc) return null;
+  const grouped = {};
+  slots.forEach(s => { const h = s.time.split(":")[0]; if (!grouped[h]) grouped[h] = []; grouped[h].push(s); });
+  const hours = Object.keys(grouped).sort();
+  return (
+    <div style={{ border: `1.5px solid ${theme.accent}30`, borderRadius: theme.radius, overflow: "hidden" }}>
+      <div style={{ padding: "10px 14px", background: theme.accentLight, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: theme.accent }}>📅 Volné termíny — {proc.name} ({proc.duration}')</span>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <button onClick={() => setViewDate(new Date(new Date(viewDate).getTime() - 86400000).toISOString().split("T")[0])} style={{ border: "none", background: "white", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 14 }}>◂</button>
+          <input type="date" value={viewDate} onChange={e => setViewDate(e.target.value)} min={TODAY} style={{ padding: "3px 8px", border: `1px solid ${theme.border}`, borderRadius: 4, fontFamily: MONO, fontSize: 12 }} />
+          <button onClick={() => setViewDate(new Date(new Date(viewDate).getTime() + 86400000).toISOString().split("T")[0])} style={{ border: "none", background: "white", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 14 }}>▸</button>
+        </div>
+      </div>
+      <div style={{ padding: "8px 14px", maxHeight: 220, overflowY: "auto" }}>
+        {hours.length === 0 ? (
+          <div style={{ padding: 16, textAlign: "center", color: theme.textMuted, fontSize: 13 }}>Žádné volné termíny pro tento den</div>
+        ) : hours.map(h => (
+          <div key={h} style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, marginBottom: 3 }}>{h}:00</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+              {grouped[h].map((s, i) => {
+                const isSel = s.date === selectedDate && s.time === selectedTime && s.doctorId === (doctorId || s.doctorId);
+                return (
+                  <button key={i} onClick={() => onSelect(s)}
+                    style={{ padding: "3px 8px", border: `1.5px solid ${isSel ? theme.accent : s.doctorColor + "40"}`, borderRadius: 4, background: isSel ? theme.accent : s.doctorColor + "08", color: isSel ? "white" : theme.text, cursor: "pointer", fontSize: 12, fontFamily: MONO, fontWeight: 600, transition: "all 0.1s" }}
+                    onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = s.doctorColor + "20"; }}
+                    onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = s.doctorColor + "08"; }}
+                    title={s.doctorName}>
+                    {s.time}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── QUICK ACUTE MODAL ───
+function QuickAcuteModal({ clients, pets, config, onSave, onClose }) {
+  const [clientId, setClientId] = useState("");
+  const [petId, setPetId] = useState("");
+  const [note, setNote] = useState("");
+  const [withTime, setWithTime] = useState(false);
+  const [time, setTime] = useState(new Date().toTimeString().slice(0, 5));
+  const [doctorId, setDoctorId] = useState(config.doctors.find(d => d.specializations.includes("akutni"))?.id || config.doctors[0]?.id || "");
+  const selPets = pets.filter(p => p.clientId === clientId);
+  const handleSave = () => {
+    const proc = PROCEDURES.find(p => p.id === "emergency");
+    onSave({ id: generateId(), clientId, petId, procedureId: "emergency", doctorId, date: TODAY, time: withTime ? time : new Date().toTimeString().slice(0, 5), duration: proc?.duration || 20, status: "arrived", note: note || "Akutní příjem", createdBy: "reception", arrivalTime: new Date().toTimeString().slice(0, 5) });
+    onClose();
+  };
+  return (
+    <Modal title="🚨 Akutní příjem" subtitle="Rychlé zařazení pacienta — rovnou do čekárny" onClose={onClose}
+      footer={<><Btn variant="ghost" onClick={onClose}>Zrušit</Btn><Btn variant="danger" icon="alert" disabled={!clientId || !petId} onClick={handleSave}>Akutní příjem → Čekárna</Btn></>}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ padding: 12, background: theme.dangerLight, borderRadius: theme.radius, fontSize: 13, color: theme.danger, fontWeight: 600 }}>
+          ⚡ Pacient bude zařazen rovnou do čekárny se stavem „Přišel"
+        </div>
+        <Select label="Klient" required value={clientId} onChange={e => { setClientId(e.target.value); setPetId(""); }}>
+          <option value="">— vyberte —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName} ({c.phone})</option>)}
+        </Select>
+        {clientId && <Select label="Zvíře" required value={petId} onChange={e => setPetId(e.target.value)}>
+          <option value="">— vyberte —</option>{selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}
+        </Select>}
+        <Select label="Lékař" value={doctorId} onChange={e => setDoctorId(e.target.value)}>
+          {config.doctors.filter(d => d.specializations.includes("akutni")).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </Select>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={withTime} onChange={e => setWithTime(e.target.checked)} /> Zadat konkrétní čas (nepovinné)
+        </label>
+        {withTime && <Input label="Čas" type="time" value={time} onChange={e => setTime(e.target.value)} style={{ width: 140 }} />}
+        <Input label="Poznámka" textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Důvod akutního příjmu..." />
+      </div>
+    </Modal>
+  );
+}
+
+// ─── CLIENT REGISTRY ───
+function ClientRegistry({ clients, pets, setClients, setPets }) {
+  const [search, setSearch] = useState("");
+  const [editClient, setEditClient] = useState(null);
+  const [editPet, setEditPet] = useState(null);
+  const [showAddClient, setShowAddClient] = useState(false);
+  const [showAddPet, setShowAddPet] = useState(null);
+  const [newClient, setNewClient] = useState({ firstName: "", lastName: "", phone: "", email: "" });
+  const [newPet, setNewPet] = useState({ name: "", species: "Pes", breed: "" });
+  const filtered = clients.filter(c => {
+    const q = search.toLowerCase();
+    return !q || c.firstName.toLowerCase().includes(q) || c.lastName.toLowerCase().includes(q) || c.phone.includes(q) || c.email.toLowerCase().includes(q) || pets.filter(p => p.clientId === c.id).some(p => p.name.toLowerCase().includes(q));
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ flex: 1 }}><Input icon="search" placeholder="Hledat klienta, zvíře, telefon..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+        <Btn icon="plus" onClick={() => setShowAddClient(true)}>Nový klient</Btn>
+      </div>
+      <div style={{ fontSize: 12, color: theme.textMuted }}>{filtered.length} z {clients.length} klientů • {pets.length} zvířat celkem</div>
+      {filtered.map(c => {
+        const cPets = pets.filter(p => p.clientId === c.id);
+        return (
+          <div key={c.id} style={{ border: `1px solid ${theme.border}`, borderRadius: theme.radius, background: "white", overflow: "hidden" }}>
+            <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${theme.borderLight}` }}>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{c.lastName} {c.firstName}</span>
+                <span style={{ marginLeft: 12, fontSize: 12, color: theme.textMuted }}><Icon name="phone" size={12} /> {c.phone}</span>
+                <span style={{ marginLeft: 12, fontSize: 12, color: theme.textMuted }}>{c.email}</span>
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <Btn small variant="ghost" icon="plus" onClick={() => { setShowAddPet(c.id); setNewPet({ name: "", species: "Pes", breed: "" }); }}>Zvíře</Btn>
+                <Btn small variant="ghost" icon="edit" onClick={() => setEditClient({ ...c })}>Upravit</Btn>
+              </div>
+            </div>
+            {cPets.length > 0 && (
+              <div style={{ padding: "8px 16px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {cPets.map(p => (
+                  <div key={p.id} onClick={() => setEditPet({ ...p })} style={{ padding: "6px 12px", background: theme.accentLight, borderRadius: 8, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.15s", border: `1px solid transparent` }}
+                    onMouseEnter={e => e.currentTarget.style.borderColor = theme.accent}
+                    onMouseLeave={e => e.currentTarget.style.borderColor = "transparent"}>
+                    <span style={{ fontSize: 16 }}>🐾</span>
+                    <span style={{ fontWeight: 600 }}>{p.name}</span>
+                    <span style={{ color: theme.textSecondary, fontSize: 11 }}>{p.species} • {p.breed}</span>
+                    <span style={{ fontSize: 10, color: theme.textMuted }}>✏️</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {cPets.length === 0 && <div style={{ padding: "8px 16px", fontSize: 12, color: theme.textMuted }}>Žádná zvířata</div>}
+          </div>
+        );
+      })}
+
+      {editClient && (
+        <Modal title="Upravit klienta" onClose={() => setEditClient(null)} footer={<><Btn variant="ghost" onClick={() => setEditClient(null)}>Zrušit</Btn><Btn icon="check" onClick={() => { setClients(prev => prev.map(c => c.id === editClient.id ? editClient : c)); setEditClient(null); }}>Uložit</Btn></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Input label="Jméno" value={editClient.firstName} onChange={e => setEditClient({ ...editClient, firstName: e.target.value })} /></div><div style={{ flex: 1 }}><Input label="Příjmení" value={editClient.lastName} onChange={e => setEditClient({ ...editClient, lastName: e.target.value })} /></div></div>
+            <Input label="Telefon" value={editClient.phone} onChange={e => setEditClient({ ...editClient, phone: e.target.value })} />
+            <Input label="E-mail" value={editClient.email} onChange={e => setEditClient({ ...editClient, email: e.target.value })} />
+          </div>
+        </Modal>
+      )}
+      {editPet && (
+        <Modal title={`Upravit zvíře — ${editPet.name}`} onClose={() => setEditPet(null)} footer={<><Btn variant="danger" onClick={() => { if(confirm("Smazat zvíře?")) { setPets(prev => prev.filter(p => p.id !== editPet.id)); setEditPet(null); } }}>Smazat</Btn><div style={{flex:1}}/><Btn variant="ghost" onClick={() => setEditPet(null)}>Zrušit</Btn><Btn icon="check" onClick={() => { setPets(prev => prev.map(p => p.id === editPet.id ? editPet : p)); setEditPet(null); }}>Uložit</Btn></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Input label="Jméno" value={editPet.name} onChange={e => setEditPet({ ...editPet, name: e.target.value })} />
+            <Select label="Druh" value={editPet.species} onChange={e => setEditPet({ ...editPet, species: e.target.value })}><option>Pes</option><option>Kočka</option><option>Králík</option><option>Křeček</option><option>Had</option><option>Pták</option><option>Jiné</option></Select>
+            <Input label="Plemeno" value={editPet.breed} onChange={e => setEditPet({ ...editPet, breed: e.target.value })} />
+          </div>
+        </Modal>
+      )}
+      {showAddClient && (
+        <Modal title="Nový klient" onClose={() => setShowAddClient(false)} footer={<><Btn variant="ghost" onClick={() => setShowAddClient(false)}>Zrušit</Btn><Btn icon="check" disabled={!newClient.lastName || !newClient.phone} onClick={() => { setClients(prev => [...prev, { ...newClient, id: generateId() }]); setShowAddClient(false); setNewClient({ firstName: "", lastName: "", phone: "", email: "" }); }}>Přidat</Btn></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Input label="Jméno" required value={newClient.firstName} onChange={e => setNewClient({ ...newClient, firstName: e.target.value })} /></div><div style={{ flex: 1 }}><Input label="Příjmení" required value={newClient.lastName} onChange={e => setNewClient({ ...newClient, lastName: e.target.value })} /></div></div>
+            <Input label="Telefon" required value={newClient.phone} onChange={e => setNewClient({ ...newClient, phone: e.target.value })} />
+            <Input label="E-mail" value={newClient.email} onChange={e => setNewClient({ ...newClient, email: e.target.value })} />
+          </div>
+        </Modal>
+      )}
+      {showAddPet && (
+        <Modal title="Přidat zvíře" subtitle={`Klient: ${clients.find(c => c.id === showAddPet)?.lastName || ""}`} onClose={() => setShowAddPet(null)} footer={<><Btn variant="ghost" onClick={() => setShowAddPet(null)}>Zrušit</Btn><Btn icon="check" disabled={!newPet.name} onClick={() => { setPets(prev => [...prev, { ...newPet, id: generateId(), clientId: showAddPet }]); setShowAddPet(null); }}>Přidat</Btn></>}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Input label="Jméno zvířete" required value={newPet.name} onChange={e => setNewPet({ ...newPet, name: e.target.value })} />
+            <Select label="Druh" value={newPet.species} onChange={e => setNewPet({ ...newPet, species: e.target.value })}><option>Pes</option><option>Kočka</option><option>Králík</option><option>Křeček</option><option>Had</option><option>Pták</option><option>Jiné</option></Select>
+            <Input label="Plemeno" value={newPet.breed} onChange={e => setNewPet({ ...newPet, breed: e.target.value })} />
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 // ─── SETTINGS VIEW ───
 function SettingsView({ config, setConfig }) {
   const [tab, setTab] = useState("hours");
@@ -484,8 +677,9 @@ function SettingsView({ config, setConfig }) {
     { id: "doctors", label: "👨‍⚕️ Lékaři" },
     { id: "blocks", label: "📋 Bloky procedur" },
     { id: "acute", label: "🚨 Akutní sloty" },
-    { id: "sms", label: "📱 SMS upozornění" },
-    { id: "winvet", label: "🔗 WinVet integrace" },
+    { id: "admin", label: "🔐 Zaměstnanci" },
+    { id: "sms", label: "📱 SMS" },
+    { id: "winvet", label: "🔗 WinVet" },
   ];
 
   return (
@@ -579,6 +773,67 @@ function SettingsView({ config, setConfig }) {
             <Input label="Rozestup bufferů (min)" type="number" value={config.acuteBufferSpacing} onChange={e => setConfig({ ...config, acuteBufferSpacing: parseInt(e.target.value) || 90 })} style={{ width: 100 }} />
             <div style={{ fontSize: 13, color: theme.textSecondary }}>
               Aktuální nastavení: <strong>{config.acuteBufferSlots} slotů</strong> po <strong>{config.acuteBufferSpacing} min</strong> — akutní se řadí podle <strong>času příchodu</strong>, ne podle objednání.
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {tab === "admin" && (
+        <Card title="🔐 Zaměstnanci a přístupová práva" accent={theme.purple}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ padding: 12, background: theme.purpleLight, borderRadius: theme.radius, fontSize: 13, color: theme.purple }}>
+              Správa zaměstnanců kliniky. Každý zaměstnanec má přidělenou roli a přístupová práva.
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(config.employees || []).map((emp, idx) => (
+                <div key={emp.id} style={{ padding: 12, border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, display: "flex", justifyContent: "space-between", alignItems: "center", background: "white" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ width: 32, height: 32, borderRadius: "50%", background: ROLES[emp.role]?.color + "20" || theme.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{ROLES[emp.role]?.icon || "👤"}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{emp.name}</div>
+                      <div style={{ fontSize: 12, color: theme.textMuted }}>{emp.email} • PIN: <span style={{ fontFamily: MONO }}>{emp.pin}</span></div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <select value={emp.role} onChange={e => { const emps = [...config.employees]; emps[idx] = { ...emps[idx], role: e.target.value }; setConfig({ ...config, employees: emps }); }}
+                      style={{ padding: "4px 8px", border: `1px solid ${theme.border}`, borderRadius: 4, fontSize: 12, fontFamily: FONT }}>
+                      <option value="manager">📊 Manažer</option>
+                      <option value="reception">🖥️ Recepce</option>
+                      <option value="doctor">🩺 Lékař</option>
+                    </select>
+                    {emp.role === "doctor" && (
+                      <select value={emp.doctorId || ""} onChange={e => { const emps = [...config.employees]; emps[idx] = { ...emps[idx], doctorId: e.target.value }; setConfig({ ...config, employees: emps }); }}
+                        style={{ padding: "4px 8px", border: `1px solid ${theme.border}`, borderRadius: 4, fontSize: 12 }}>
+                        <option value="">— lékař —</option>
+                        {config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                    )}
+                    <button onClick={() => { if(confirm(`Smazat ${emp.name}?`)) setConfig({ ...config, employees: config.employees.filter((_,i) => i !== idx) }); }}
+                      style={{ border: "none", background: "none", color: theme.danger, cursor: "pointer", fontSize: 14 }}>✕</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: 14, border: `2px dashed ${theme.border}`, borderRadius: theme.radius, background: theme.bg }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: theme.textSecondary, marginBottom: 8 }}>Přidat zaměstnance</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "end" }}>
+                <div style={{ flex: 2, minWidth: 140 }}><Input label="Jméno" id="newEmpName" placeholder="Jan Novotný" /></div>
+                <div style={{ flex: 2, minWidth: 160 }}><Input label="E-mail" id="newEmpEmail" placeholder="novotny@klinika.cz" /></div>
+                <div style={{ flex: 1, minWidth: 80 }}><Input label="PIN" id="newEmpPin" placeholder="0000" style={{ fontFamily: MONO }} /></div>
+                <Btn icon="plus" onClick={() => {
+                  const name = document.getElementById("newEmpName")?.value;
+                  const email = document.getElementById("newEmpEmail")?.value;
+                  const pin = document.getElementById("newEmpPin")?.value || String(Math.floor(1000 + Math.random() * 9000));
+                  if (!name) return;
+                  setConfig({ ...config, employees: [...(config.employees || []), { id: generateId(), name, email: email || "", role: "reception", pin }] });
+                  if (document.getElementById("newEmpName")) document.getElementById("newEmpName").value = "";
+                  if (document.getElementById("newEmpEmail")) document.getElementById("newEmpEmail").value = "";
+                  if (document.getElementById("newEmpPin")) document.getElementById("newEmpPin").value = "";
+                }}>Přidat</Btn>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: theme.textMuted }}>
+              <strong>Role:</strong> 📊 Manažer — plný přístup, nastavení, statistiky • 🖥️ Recepce — objednávky, klienti, čekárna • 🩺 Lékař — vlastní pacienti, workflow
             </div>
           </div>
         </Card>
@@ -713,8 +968,7 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
   const [step, setStep] = useState("login");
   const [client, setClient] = useState(null);
   const [loginEmail, setLoginEmail] = useState("");
-  const [form, setForm] = useState({ petId: "", procedureId: "", date: TOMORROW, time: "09:00", note: "", doctorId: "" });
-  const [showSlotFinder, setShowSlotFinder] = useState(false);
+  const [form, setForm] = useState({ petId: "", procedureId: "", date: TOMORROW, time: "", note: "", doctorId: "" });
   const myPets = pets.filter(p => p.clientId === client?.id);
 
   const handleLogin = () => { const f = clients.find(c => c.email === loginEmail); if (f) { setClient(f); setStep("form"); } else alert("Účet nenalezen."); };
@@ -783,13 +1037,17 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
             </Select>
 
             {form.procedureId && (
-              <Btn variant="outline" icon="search" onClick={() => setShowSlotFinder(true)} style={{ width: "100%" }}>🔍 Najít volný termín automaticky</Btn>
+              <InlineSlotPicker config={config} appointments={appointments} procedureId={form.procedureId} doctorId={form.doctorId}
+                selectedDate={form.date} selectedTime={form.time}
+                onSelect={s => setForm({ ...form, date: s.date, time: s.time, doctorId: s.doctorId })} />
             )}
 
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}><Input label="Preferovaný den" type="date" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} min={TOMORROW} /></div>
-              <div style={{ flex: 1 }}><Input label="Preferovaný čas" type="time" required value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} min="07:00" max="17:00" step="900" /></div>
-            </div>
+            {form.procedureId && form.date && form.time && (
+              <div style={{ padding: 10, background: theme.successLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.success, fontWeight: 600 }}>
+                ✓ Vybraný termín: <span style={{ fontFamily: MONO }}>{form.date} {form.time}</span>
+                {form.doctorId && <span> — {config.doctors.find(d => d.id === form.doctorId)?.name}</span>}
+              </div>
+            )}
             <Input label="Popis problému" textarea icon="edit" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} placeholder="Popište příznaky..." />
             <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.warning }}>⚠️ Jedná se o <strong>žádost</strong> — termín potvrdí recepce.</div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -811,18 +1069,17 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
         </Card>
       )}
 
-      {showSlotFinder && <FreeSlotModal config={config} appointments={appointments} onClose={() => setShowSlotFinder(false)}
-        onSelect={s => { setForm({ ...form, date: s.date, time: s.time, doctorId: s.doctorId }); setShowSlotFinder(false); }} />}
     </div>
   );
 }
 
 // ─── RECEPTION VIEW ───
-function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt, onEdit, onSms }) {
+function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt, onEdit, onSms, setClients, setPets }) {
   const [tab, setTab] = useState("today");
   const [showNew, setShowNew] = useState(false);
+  const [showAcute, setShowAcute] = useState(false);
   const [showSlotFinder, setShowSlotFinder] = useState(false);
-  const [newApt, setNewApt] = useState({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "08:00", note: "" });
+  const [newApt, setNewApt] = useState({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "", note: "" });
   const todayApts = appointments.filter(a => a.date === TODAY).sort((a, b) => a.time.localeCompare(b.time));
   const pendingApts = appointments.filter(a => a.status === "pending");
   const waitingApts = todayApts.filter(a => a.status === "arrived");
@@ -832,7 +1089,7 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
   const handleSave = () => {
     const proc = PROCEDURES.find(p => p.id === newApt.procedureId);
     onAddApt({ id: generateId(), ...newApt, duration: proc?.duration || 20, status: "confirmed", createdBy: "reception" });
-    setShowNew(false); setNewApt({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "08:00", note: "" });
+    setShowNew(false); setNewApt({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "", note: "" });
   };
 
   return (
@@ -851,38 +1108,47 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
         </Card>
       )}
 
-      <div style={{ display: "flex", gap: 4, borderBottom: `2px solid ${theme.border}`, alignItems: "center" }}>
-        {[{ id: "today", l: `Dnes (${todayApts.length})` }, { id: "pending", l: `Ke schválení (${pendingApts.length})`, alert: pendingApts.length > 0 }, { id: "all", l: "Vše" }].map(t =>
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 20px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.accent : "transparent"}`, background: "none", color: tab === t.id ? theme.accent : theme.textSecondary, fontSize: 14, fontWeight: 700, cursor: "pointer", position: "relative" }}>
-            {t.l}{t.alert && <span style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: theme.danger }} />}
+      <div style={{ display: "flex", gap: 4, borderBottom: `2px solid ${theme.border}`, alignItems: "center", overflowX: "auto" }}>
+        {[{ id: "today", l: `Dnes (${todayApts.length})` }, { id: "pending", l: `Ke schválení (${pendingApts.length})`, alert: pendingApts.length > 0 }, { id: "all", l: "Vše" }, { id: "clients", l: `👥 Klienti (${clients.length})` }].map(t =>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 16px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.accent : "transparent"}`, background: "none", color: tab === t.id ? theme.accent : theme.textSecondary, fontSize: 13, fontWeight: 700, cursor: "pointer", position: "relative", whiteSpace: "nowrap" }}>
+            {t.l}{t.alert && <span style={{ position: "absolute", top: 6, right: 4, width: 8, height: 8, borderRadius: "50%", background: theme.danger }} />}
           </button>
         )}
         <div style={{ flex: 1 }} />
-        <Btn small icon="search" variant="outline" onClick={() => setShowSlotFinder(true)} style={{ marginRight: 6 }}>Volné termíny</Btn>
-        <Btn icon="plus" onClick={() => setShowNew(true)}>Nová objednávka</Btn>
+        <Btn small variant="danger" icon="alert" onClick={() => setShowAcute(true)} style={{ marginRight: 4 }}>Akut</Btn>
+        <Btn small icon="search" variant="outline" onClick={() => setShowSlotFinder(true)} style={{ marginRight: 4 }}>Volné</Btn>
+        <Btn icon="plus" onClick={() => setShowNew(true)}>Objednávka</Btn>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {(tab === "today" ? todayApts : tab === "pending" ? pendingApts : appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)))
-          .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="reception" />)}
-        {((tab === "today" && !todayApts.length) || (tab === "pending" && !pendingApts.length)) && <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné záznamy</div>}
-      </div>
+      {tab === "clients" ? (
+        <ClientRegistry clients={clients} pets={pets} setClients={setClients} setPets={setPets} />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {(tab === "today" ? todayApts : tab === "pending" ? pendingApts : [...appointments].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)))
+            .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="reception" />)}
+          {((tab === "today" && !todayApts.length) || (tab === "pending" && !pendingApts.length)) && <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné záznamy</div>}
+        </div>
+      )}
 
       {showNew && (
-        <Modal title="Nová objednávka" onClose={() => setShowNew(false)} footer={<><Btn variant="ghost" onClick={() => setShowNew(false)}>Zrušit</Btn><Btn variant="success" icon="check" disabled={!newApt.clientId || !newApt.petId || !newApt.procedureId} onClick={handleSave}>Uložit</Btn></>}>
+        <Modal title="Nová objednávka" onClose={() => setShowNew(false)} wide footer={<><Btn variant="ghost" onClick={() => setShowNew(false)}>Zrušit</Btn><Btn variant="success" icon="check" disabled={!newApt.clientId || !newApt.petId || !newApt.procedureId || !newApt.time} onClick={handleSave}>Uložit</Btn></>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <Select label="Klient" required value={newApt.clientId} onChange={e => setNewApt({ ...newApt, clientId: e.target.value, petId: "" })}><option value="">— vyberte —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>)}</Select>
             {newApt.clientId && <Select label="Zvíře" required value={newApt.petId} onChange={e => setNewApt({ ...newApt, petId: e.target.value })}><option value="">— vyberte —</option>{selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}</Select>}
-            <Select label="Procedura" required value={newApt.procedureId} onChange={e => setNewApt({ ...newApt, procedureId: e.target.value })}><option value="">— vyberte —</option>{PROCEDURES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}</Select>
-            <Select label="Lékař" value={newApt.doctorId} onChange={e => setNewApt({ ...newApt, doctorId: e.target.value })}><option value="">— automaticky —</option>{config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
-            <div style={{ display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}><Input label="Datum" type="date" value={newApt.date} onChange={e => setNewApt({ ...newApt, date: e.target.value })} /></div>
-              <div style={{ flex: 1 }}><Input label="Čas" type="time" value={newApt.time} onChange={e => setNewApt({ ...newApt, time: e.target.value })} step="900" /></div>
-            </div>
+            <Select label="Procedura" required value={newApt.procedureId} onChange={e => setNewApt({ ...newApt, procedureId: e.target.value, time: "" })}><option value="">— vyberte —</option>{PROCEDURES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}</Select>
+            <Select label="Lékař" value={newApt.doctorId} onChange={e => setNewApt({ ...newApt, doctorId: e.target.value, time: "" })}><option value="">— kdokoliv —</option>{config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
+            {newApt.procedureId && (
+              <InlineSlotPicker config={config} appointments={appointments} procedureId={newApt.procedureId} doctorId={newApt.doctorId}
+                selectedDate={newApt.date} selectedTime={newApt.time}
+                onSelect={s => setNewApt({ ...newApt, date: s.date, time: s.time, doctorId: s.doctorId })} />
+            )}
+            {newApt.time && <div style={{ padding: 8, background: theme.successLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.success, fontWeight: 600 }}>✓ Termín: <span style={{ fontFamily: MONO }}>{newApt.date} {newApt.time}</span></div>}
             <Input label="Poznámka" textarea value={newApt.note} onChange={e => setNewApt({ ...newApt, note: e.target.value })} />
           </div>
         </Modal>
       )}
+
+      {showAcute && <QuickAcuteModal clients={clients} pets={pets} config={config} onSave={onAddApt} onClose={() => setShowAcute(false)} />}
 
       {showSlotFinder && <FreeSlotModal config={config} appointments={appointments} onClose={() => setShowSlotFinder(false)}
         onSelect={s => { setNewApt({ ...newApt, date: s.date, time: s.time, doctorId: s.doctorId }); setShowSlotFinder(false); setShowNew(true); }} />}
@@ -922,7 +1188,7 @@ function DoctorView({ appointments, clients, pets, config, onAction, onEdit, onS
 }
 
 // ─── MANAGER VIEW ───
-function ManagerView({ appointments, clients, pets, config, onAction, onEdit, onSms }) {
+function ManagerView({ appointments, clients, pets, config, onAction, onEdit, onSms, setClients, setPets }) {
   const todayApts = appointments.filter(a => a.date === TODAY);
   const totalMin = todayApts.reduce((s, a) => s + a.duration, 0);
   const byProc = PROCEDURES.map(p => ({ ...p, count: appointments.filter(a => a.procedureId === p.id).length })).filter(p => p.count > 0).sort((a, b) => b.count - a.count);
@@ -981,6 +1247,9 @@ function ManagerView({ appointments, clients, pets, config, onAction, onEdit, on
           </div>
         </Card>
       </div>
+      <Card title={`👥 Registr klientů a zvířat (${clients.length} klientů, ${pets.length} zvířat)`}>
+        <ClientRegistry clients={clients} pets={pets} setClients={setClients} setPets={setPets} />
+      </Card>
     </div>
   );
 }
@@ -991,8 +1260,8 @@ function ManagerView({ appointments, clients, pets, config, onAction, onEdit, on
 export default function VetApp() {
   const [role, setRole] = useState("reception");
   const [appointments, setAppointments] = useState(DEMO_APTS);
-  const [clients] = useState(DEMO_CLIENTS);
-  const [pets] = useState(DEMO_PETS);
+  const [clients, setClients] = useState(DEMO_CLIENTS);
+  const [pets, setPets] = useState(DEMO_PETS);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [showSettings, setShowSettings] = useState(false);
   const [editApt, setEditApt] = useState(null);
@@ -1057,9 +1326,9 @@ export default function VetApp() {
       <main style={{ padding: "20px 24px", maxWidth: role === "public" && !showSettings ? 700 : 1200, margin: "0 auto" }}>
         {showSettings ? <SettingsView config={config} setConfig={setConfig} /> :
           role === "public" ? <PublicView onSubmitRequest={handleAdd} clients={clients} pets={pets} config={config} appointments={appointments} /> :
-          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} onEdit={setEditApt} onSms={handleSmsOpen} /> :
+          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} onEdit={setEditApt} onSms={handleSmsOpen} setClients={setClients} setPets={setPets} /> :
           role === "doctor" ? <DoctorView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} /> :
-          <ManagerView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} />}
+          <ManagerView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} setClients={setClients} setPets={setPets} />}
       </main>
 
       {editApt && <EditAptModal apt={editApt} config={config} clients={clients} pets={pets} onSave={handleEditSave} onClose={() => setEditApt(null)} />}
