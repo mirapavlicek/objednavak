@@ -1,53 +1,51 @@
-# 🏥 Objednávací systém — Prototyp
+# 🐾 VetBook — Veterinární objednávací systém
 
-Interaktivní prototyp objednávacího systému pro ambulantní provoz.
+Moderní objednávací systém pro veterinární kliniku. React SPA, deploy na Vercel, PWA ready.
 
-## Typy návštěv
+## Funkce
 
-| Kód | Typ | Délky |
-|-----|-----|-------|
-| A1 | Obecný slot | 10–60 min |
-| A2 | Očko, KO, 1.visit, Konzult, USG | 10–40 min |
-| OPER | Operace | 30–120 min |
-| B | Akutní příjem | 10–40 min |
+- **⚡ QuickBook** — rychlá objednávka textovým příkazem (`Černý drápky sobota 14:30`)
+- **📅 Kalendář** — denní / týdenní / měsíční pohled
+- **🏠 Čekárna** — real-time přehled pacientů v ordinaci
+- **🚨 Akutní příjem** — jeden klik, rovnou do čekárny
+- **📱 SMS notifikace** — SmsManager.cz API, šablony, auto-připomínky
+- **👥 Registr klientů** — fulltext hledání, editace, CRUD zvířat
+- **🔐 Role** — recepce, lékař, manažer, veřejný portál
+- **⚙️ Nastavení** — otvírací doba, lékaři, procedurní bloky, zaměstnanci
+- **📱 PWA** — instalace na plochu, offline, push notifications ready
 
-## Rychlý start (lokálně)
+## Quick start
 
 ```bash
 npm install
 npm run dev
 ```
 
-Otevře se na `http://localhost:5173`
-
-## Deploy na Vercel
-
-### Varianta A — přes GitHub (doporučeno)
-
-1. Vytvoř nový repozitář na GitHub
-2. Pushni tento projekt:
-   ```bash
-   git init
-   git add .
-   git commit -m "init: objednavaci system"
-   git remote add origin https://github.com/TVUJ-USERNAME/objednavaci-system.git
-   git push -u origin main
-   ```
-3. Jdi na [vercel.com/new](https://vercel.com/new)
-4. Propoj GitHub účet → vyber repozitář
-5. Vercel automaticky detekuje Vite — klikni **Deploy**
-6. Za ~30 sekund máš URL: `https://objednavaci-system.vercel.app`
-
-### Varianta B — přes Vercel CLI
+## Build & deploy
 
 ```bash
-npm i -g vercel
-vercel login
-vercel
+npm run build    # → dist/
 ```
 
-## Technologie
+Auto-deploy na Vercel z `main` branche.
 
-- React 18
-- Vite 6
-- Vanilla CSS (žádné frameworky)
+## Tech stack
+
+- React 18 + Vite
+- Inline CSS (žádný framework)
+- SmsManager.cz (SMS API)
+- Service Worker (PWA)
+- Vercel (hosting)
+
+## Struktura
+
+```
+src/App.jsx          # Celá aplikace (~1950 řádků)
+src/main.jsx         # React entry point
+public/manifest.json # PWA manifest
+public/sw.js         # Service worker
+public/icon-*.png    # PWA ikony
+CLAUDE.md            # Kontext pro Claude Code
+```
+
+Podrobná dokumentace architektury v [CLAUDE.md](./CLAUDE.md).
