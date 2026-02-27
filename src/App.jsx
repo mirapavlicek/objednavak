@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // ─── FONTS & THEME ───
 const FONT = `'DM Sans', 'Segoe UI', system-ui, sans-serif`;
@@ -35,6 +35,7 @@ const DEFAULT_CONFIG = {
   smsOnConfirm: true,
   smsOnReminder: true,
   smsOnCancel: false,
+  smsReminderHours: 24,
   doctors: [
     { id: "d1", name: "MVDr. Jan Novák", specializations: ["chirurgie", "diagnostika", "prevence", "specialni", "akutni", "ostatni"], color: "#2563eb" },
     { id: "d2", name: "MVDr. Petra Králová", specializations: ["prevence", "diagnostika", "specialni", "ostatni"], color: "#059669" },
@@ -258,7 +259,12 @@ function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, role }) {
   const endTime = fromMin(toMin(apt.time) + apt.duration);
   const canEdit = role === "reception" || role === "manager";
   const canNoShow = role === "reception" && ["confirmed", "arrived"].includes(apt.status);
-  const canSms = (role === "reception" || role === "manager") && client?.phone;
+  const clientPhone = client?.phone || apt.manualPhone;
+  const canSms = (role === "reception" || role === "manager") && clientPhone;
+  const displayName = client ? `${client.lastName} ${client.firstName}` : (apt.manualName || "Neznámý");
+  const displayPet = pet ? pet.name : (apt.manualPet || "");
+  const displaySpecies = pet ? pet.species : "";
+  const smsClient = client || (apt.manualPhone ? { firstName: apt.manualName || "", lastName: "", phone: apt.manualPhone } : null);
   const IconBtn = ({ icon, title, color, onClick }) => (
     <button title={title} onClick={onClick} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px solid ${color}30`, borderRadius: 6, background: color + "08", color, cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
       onMouseEnter={e => { e.currentTarget.style.background = color + "20"; }} onMouseLeave={e => { e.currentTarget.style.background = color + "08"; }}>
@@ -277,10 +283,10 @@ function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, role }) {
             {apt.date !== TODAY && <span style={{ fontSize: 11, fontFamily: MONO, color: theme.textMuted, background: theme.bg, padding: "2px 6px", borderRadius: 4 }}>{apt.date}</span>}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 15, fontWeight: 600 }}>{client?.lastName} {client?.firstName}</span>
-            <span style={{ color: theme.textSecondary }}>—</span>
-            <span style={{ fontSize: 14, color: theme.accent, fontWeight: 600 }}>🐾 {pet?.name}</span>
-            <span style={{ fontSize: 12, color: theme.textMuted }}>({pet?.species})</span>
+            <span style={{ fontSize: 15, fontWeight: 600 }}>{displayName}</span>
+            {!client && apt.manualName && <span style={{ fontSize: 10, color: theme.warning, fontWeight: 600, background: theme.warningLight, padding: "1px 6px", borderRadius: 4 }}>ruční</span>}
+            {displayPet && <><span style={{ color: theme.textSecondary }}>—</span><span style={{ fontSize: 14, color: theme.accent, fontWeight: 600 }}>🐾 {displayPet}</span></>}
+            {displaySpecies && <span style={{ fontSize: 12, color: theme.textMuted }}>({displaySpecies})</span>}
           </div>
           {apt.note && <div style={{ fontSize: 12, color: theme.textSecondary }}>📋 {apt.note}</div>}
         </div>
@@ -293,7 +299,7 @@ function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, role }) {
             {role === "reception" && ["confirmed", "pending"].includes(apt.status) && <Btn small variant="ghost" icon="move" onClick={() => onAction(apt.id, "reschedule")}>Přesunout</Btn>}
             {canNoShow && <IconBtn icon="userX" title="Nedostavil se" color={theme.danger} onClick={() => onAction(apt.id, "no_show")} />}
             {canEdit && !["completed", "rejected", "no_show"].includes(apt.status) && <IconBtn icon="edit" title="Upravit" color={theme.accent} onClick={() => onEdit(apt)} />}
-            {canSms && <IconBtn icon="sms" title="Poslat SMS" color="#059669" onClick={() => onSms(apt, client)} />}
+            {canSms && <IconBtn icon="sms" title="Poslat SMS" color="#059669" onClick={() => onSms(apt, smsClient)} />}
           </div>
         )}
       </div>
@@ -368,18 +374,32 @@ function FreeSlotModal({ config, appointments, onClose, onSelect }) {
 // ─── EDIT APPOINTMENT MODAL ───
 function EditAptModal({ apt, config, clients, pets, onSave, onClose }) {
   const [form, setForm] = useState({ ...apt });
+  const isManual = !form.clientId;
   const selPets = pets.filter(p => p.clientId === form.clientId);
   return (
     <Modal title="✏️ Upravit objednávku" subtitle={`ID: ${apt.id}`} onClose={onClose}
       footer={<><Btn variant="ghost" onClick={onClose}>Zrušit</Btn><Btn variant="primary" icon="check" onClick={() => { onSave(form); onClose(); }}>Uložit změny</Btn></>}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <Select label="Klient" value={form.clientId} onChange={e => setForm({ ...form, clientId: e.target.value, petId: "" })}>
-          {clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>)}
-        </Select>
-        <Select label="Zvíře" value={form.petId} onChange={e => setForm({ ...form, petId: e.target.value })}>
-          <option value="">— vyberte —</option>
-          {selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}
-        </Select>
+        {isManual ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, background: theme.bg, borderRadius: theme.radius }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: theme.warning, textTransform: "uppercase" }}>Ručně zadaný klient</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 2 }}><Input label="Jméno" value={form.manualName || ""} onChange={e => setForm({ ...form, manualName: e.target.value })} /></div>
+              <div style={{ flex: 1 }}><Input label="Telefon" icon="phone" value={form.manualPhone || ""} onChange={e => setForm({ ...form, manualPhone: e.target.value })} /></div>
+            </div>
+            <Input label="Zvíře" value={form.manualPet || ""} onChange={e => setForm({ ...form, manualPet: e.target.value })} />
+          </div>
+        ) : (
+          <>
+            <Select label="Klient" value={form.clientId} onChange={e => setForm({ ...form, clientId: e.target.value, petId: "" })}>
+              {clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>)}
+            </Select>
+            <Select label="Zvíře" value={form.petId} onChange={e => setForm({ ...form, petId: e.target.value })}>
+              <option value="">— vyberte —</option>
+              {selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}
+            </Select>
+          </>
+        )}
         <Select label="Procedura" value={form.procedureId} onChange={e => { const proc = PROCEDURES.find(p => p.id === e.target.value); setForm({ ...form, procedureId: e.target.value, duration: proc?.duration || form.duration }); }}>
           {PROCEDURES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}
         </Select>
@@ -388,7 +408,7 @@ function EditAptModal({ apt, config, clients, pets, onSave, onClose }) {
         </Select>
         <div style={{ display: "flex", gap: 12 }}>
           <div style={{ flex: 1 }}><Input label="Datum" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
-          <div style={{ flex: 1 }}><Input label="Čas" type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} step="900" /></div>
+          <div style={{ flex: 1 }}><Input label="Čas" type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} step="60" /></div>
           <div style={{ flex: 1 }}><Input label="Délka (min)" type="number" value={form.duration} onChange={e => setForm({ ...form, duration: parseInt(e.target.value) || 15 })} style={{ width: "100%" }} /></div>
         </div>
         <Select label="Stav" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
@@ -851,12 +871,23 @@ function SettingsView({ config, setConfig }) {
               <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Automatické SMS</label>
               {[
                 { key: "smsOnConfirm", label: "Při potvrzení termínu recepcí" },
-                { key: "smsOnReminder", label: "Připomínka den před termínem" },
+                { key: "smsOnReminder", label: "Připomínka před termínem" },
                 { key: "smsOnCancel", label: "Při zrušení/zamítnutí termínu" },
               ].map(opt => (
                 <label key={opt.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
                   <input type="checkbox" checked={!!config[opt.key]} onChange={e => setConfig({ ...config, [opt.key]: e.target.checked })} />
                   {opt.label}
+                  {opt.key === "smsOnReminder" && config.smsOnReminder && (
+                    <select value={config.smsReminderHours || 24} onChange={e => setConfig({ ...config, smsReminderHours: parseInt(e.target.value) })}
+                      style={{ marginLeft: 8, padding: "2px 8px", border: `1px solid ${theme.border}`, borderRadius: 4, fontSize: 12, fontFamily: FONT }}>
+                      <option value={1}>1 hodinu</option>
+                      <option value={2}>2 hodiny</option>
+                      <option value={4}>4 hodiny</option>
+                      <option value={12}>12 hodin</option>
+                      <option value={24}>24 hodin (den předem)</option>
+                      <option value={48}>48 hodin</option>
+                    </select>
+                  )}
                 </label>
               ))}
             </div>
@@ -1073,13 +1104,146 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
   );
 }
 
+// ─── CALENDAR VIEW ───
+function CalendarView({ appointments, clients, pets, config, onAction, onEdit, onSms }) {
+  const [viewDate, setViewDate] = useState(TODAY);
+  const dayAptsRaw = appointments.filter(a => a.date === viewDate && a.status !== "rejected" && a.status !== "no_show");
+  const dayApts = dayAptsRaw.sort((a, b) => a.time.localeCompare(b.time));
+  const dayName = DAY_NAMES[new Date(viewDate + "T00:00").getDay()];
+  const oh = config.openingHours[dayName];
+  const startH = oh ? parseInt(oh.open.split(":")[0]) : 7;
+  const endH = oh ? Math.ceil(toMin(oh.close) / 60) : 18;
+  const hours = [];
+  for (let h = startH; h < endH; h++) hours.push(h);
+
+  const getAptStyle = (apt) => {
+    const proc = PROCEDURES.find(p => p.id === apt.procedureId);
+    const doc = config.doctors.find(d => d.id === apt.doctorId);
+    const startMin = toMin(apt.time) - startH * 60;
+    const top = (startMin / 60) * 80;
+    const height = Math.max((apt.duration / 60) * 80, 24);
+    return { top, height, color: doc?.color || proc?.color || theme.accent };
+  };
+
+  const prevDay = () => setViewDate(new Date(new Date(viewDate).getTime() - 86400000).toISOString().split("T")[0]);
+  const nextDay = () => setViewDate(new Date(new Date(viewDate).getTime() + 86400000).toISOString().split("T")[0]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "white", padding: "10px 16px", borderRadius: theme.radius, border: `1px solid ${theme.border}` }}>
+        <button onClick={prevDay} style={{ border: "none", background: theme.bg, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontSize: 16 }}>◂</button>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>{new Date(viewDate + "T00:00").toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long" })}</div>
+          <div style={{ fontSize: 12, color: theme.textMuted }}>{dayApts.length} objednávek{!oh && " — zavřeno"}</div>
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setViewDate(TODAY)} style={{ border: `1px solid ${theme.border}`, background: viewDate === TODAY ? theme.accent : "white", color: viewDate === TODAY ? "white" : theme.textSecondary, borderRadius: 6, padding: "6px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Dnes</button>
+          <button onClick={nextDay} style={{ border: "none", background: theme.bg, borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontWeight: 700, fontSize: 16 }}>▸</button>
+        </div>
+      </div>
+
+      {oh ? (
+        <div style={{ display: "flex", background: "white", border: `1px solid ${theme.border}`, borderRadius: theme.radius, overflow: "hidden", minHeight: hours.length * 80 }}>
+          <div style={{ width: 56, borderRight: `1px solid ${theme.border}`, flexShrink: 0 }}>
+            {hours.map(h => (
+              <div key={h} style={{ height: 80, display: "flex", alignItems: "flex-start", justifyContent: "flex-end", paddingRight: 8, paddingTop: 2, fontSize: 11, fontFamily: MONO, color: theme.textMuted, fontWeight: 600, borderBottom: `1px solid ${theme.borderLight || theme.border}22` }}>{String(h).padStart(2, "0")}:00</div>
+            ))}
+          </div>
+          <div style={{ flex: 1, position: "relative" }}>
+            {hours.map(h => (
+              <div key={h} style={{ height: 80, borderBottom: `1px solid ${theme.border}15` }}>
+                <div style={{ height: 40, borderBottom: `1px dashed ${theme.border}10` }} />
+              </div>
+            ))}
+            {dayApts.map(apt => {
+              const s = getAptStyle(apt);
+              const client = clients.find(c => c.id === apt.clientId);
+              const pet = pets.find(p => p.id === apt.petId);
+              const proc = PROCEDURES.find(p => p.id === apt.procedureId);
+              const doc = config.doctors.find(d => d.id === apt.doctorId);
+              const statusInfo = STATUSES[apt.status];
+              return (
+                <div key={apt.id} onClick={() => onEdit(apt)} title={`${apt.time} ${client?.lastName || apt.manualName || ""} — ${pet?.name || apt.manualPet || ""} — ${proc?.name || ""}`}
+                  style={{ position: "absolute", top: s.top, left: 4, right: 4, height: Math.max(s.height - 2, 22), background: s.color + "12", border: `1.5px solid ${s.color}40`, borderLeft: `4px solid ${s.color}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", overflow: "hidden", fontSize: 12, transition: "all 0.15s", zIndex: 2 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = s.color + "25"; e.currentTarget.style.zIndex = 10; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = s.color + "12"; e.currentTarget.style.zIndex = 2; }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 11 }}>{apt.time}</span>
+                    <span style={{ fontSize: 10, color: statusInfo?.color, fontWeight: 700 }}>{statusInfo?.icon}</span>
+                  </div>
+                  {s.height > 28 && <div style={{ fontWeight: 600, fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{client?.lastName || apt.manualName || "?"} — {pet?.name || apt.manualPet || ""}</div>}
+                  {s.height > 48 && <div style={{ fontSize: 10, color: theme.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{proc?.name} • {doc?.name?.split(" ").pop()}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding: 60, textAlign: "center", color: theme.textMuted, background: "white", borderRadius: theme.radius, border: `1px solid ${theme.border}` }}>🔒 V tento den je zavřeno</div>
+      )}
+    </div>
+  );
+}
+
+// ─── PWA INSTALL BANNER ───
+function PwaInstallBanner() {
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [show, setShow] = useState(false);
+  const [isIos] = useState(() => /iPhone|iPad|iPod/.test(navigator.userAgent) && !window.navigator.standalone);
+  const [showIos, setShowIos] = useState(false);
+
+  useEffect(() => {
+    const handler = e => { e.preventDefault(); setDeferredPrompt(e); setShow(true); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (deferredPrompt) { deferredPrompt.prompt(); const { outcome } = await deferredPrompt.userChoice; if (outcome === "accepted") setShow(false); setDeferredPrompt(null); }
+  };
+
+  // Check if already installed
+  if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone) return null;
+
+  return (
+    <>
+      {(show || isIos) && (
+        <div style={{ position: "fixed", bottom: 16, left: 16, right: 16, maxWidth: 420, margin: "0 auto", background: "white", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: "14px 18px", display: "flex", alignItems: "center", gap: 12, zIndex: 100, border: `1.5px solid ${theme.accent}30`, animation: "slideUp 0.3s ease-out" }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: `linear-gradient(135deg, ${theme.accent}, ${theme.accent}88)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>🐾</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Přidat VetBook na plochu</div>
+            <div style={{ fontSize: 12, color: theme.textMuted }}>Rychlý přístup + upozornění na termíny</div>
+          </div>
+          {show ? (
+            <button onClick={handleInstall} style={{ padding: "8px 16px", background: theme.accent, color: "white", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>Přidat</button>
+          ) : isIos ? (
+            <button onClick={() => setShowIos(!showIos)} style={{ padding: "8px 16px", background: theme.accent, color: "white", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>Jak?</button>
+          ) : null}
+          <button onClick={() => { setShow(false); setShowIos(false); }} style={{ border: "none", background: "none", color: theme.textMuted, cursor: "pointer", fontSize: 16, padding: 2 }}>✕</button>
+        </div>
+      )}
+      {showIos && (
+        <div style={{ position: "fixed", bottom: 90, left: 16, right: 16, maxWidth: 420, margin: "0 auto", background: "white", borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.15)", padding: "16px 20px", zIndex: 100, border: `1.5px solid ${theme.accent}30` }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>📱 Na iPhonu/iPadu:</div>
+          <div style={{ fontSize: 13, color: theme.textSecondary, lineHeight: 1.8 }}>
+            1. Klepněte na <strong>Sdílet</strong> (ikona ⬆️ dole v Safari)<br/>
+            2. Vyberte <strong>„Přidat na plochu"</strong><br/>
+            3. Potvrďte <strong>„Přidat"</strong>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── RECEPTION VIEW ───
 function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt, onEdit, onSms, setClients, setPets }) {
   const [tab, setTab] = useState("today");
   const [showNew, setShowNew] = useState(false);
   const [showAcute, setShowAcute] = useState(false);
   const [showSlotFinder, setShowSlotFinder] = useState(false);
-  const [newApt, setNewApt] = useState({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "", note: "" });
+  const [newApt, setNewApt] = useState({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "", note: "", manualName: "", manualPhone: "", manualPet: "" });
+  const [clientMode, setClientMode] = useState("select"); // select | manual
   const todayApts = appointments.filter(a => a.date === TODAY).sort((a, b) => a.time.localeCompare(b.time));
   const pendingApts = appointments.filter(a => a.status === "pending");
   const waitingApts = todayApts.filter(a => a.status === "arrived");
@@ -1088,9 +1252,32 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
 
   const handleSave = () => {
     const proc = PROCEDURES.find(p => p.id === newApt.procedureId);
-    onAddApt({ id: generateId(), ...newApt, duration: proc?.duration || 20, status: "confirmed", createdBy: "reception" });
-    setShowNew(false); setNewApt({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "", note: "" });
+    const apt = {
+      id: generateId(),
+      clientId: clientMode === "select" ? newApt.clientId : "",
+      petId: clientMode === "select" ? newApt.petId : "",
+      manualName: clientMode === "manual" ? newApt.manualName : "",
+      manualPhone: clientMode === "manual" ? newApt.manualPhone : "",
+      manualPet: clientMode === "manual" ? newApt.manualPet : "",
+      procedureId: newApt.procedureId,
+      doctorId: newApt.doctorId,
+      date: newApt.date,
+      time: newApt.time,
+      duration: proc?.duration || 20,
+      status: "confirmed",
+      note: newApt.note,
+      createdBy: "reception",
+    };
+    onAddApt(apt);
+    setShowNew(false);
+    setNewApt({ clientId: "", petId: "", procedureId: "", doctorId: "", date: TODAY, time: "", note: "", manualName: "", manualPhone: "", manualPet: "" });
+    setClientMode("select");
   };
+
+  const canSaveNew = newApt.procedureId && newApt.time && (
+    (clientMode === "select" && newApt.clientId && newApt.petId) ||
+    (clientMode === "manual" && newApt.manualName)
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1109,8 +1296,8 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
       )}
 
       <div style={{ display: "flex", gap: 4, borderBottom: `2px solid ${theme.border}`, alignItems: "center", overflowX: "auto" }}>
-        {[{ id: "today", l: `Dnes (${todayApts.length})` }, { id: "pending", l: `Ke schválení (${pendingApts.length})`, alert: pendingApts.length > 0 }, { id: "all", l: "Vše" }, { id: "clients", l: `👥 Klienti (${clients.length})` }].map(t =>
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 16px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.accent : "transparent"}`, background: "none", color: tab === t.id ? theme.accent : theme.textSecondary, fontSize: 13, fontWeight: 700, cursor: "pointer", position: "relative", whiteSpace: "nowrap" }}>
+        {[{ id: "today", l: `Dnes (${todayApts.length})` }, { id: "calendar", l: "📅 Kalendář" }, { id: "pending", l: `Ke schválení (${pendingApts.length})`, alert: pendingApts.length > 0 }, { id: "all", l: "Vše" }, { id: "clients", l: `👥 Klienti (${clients.length})` }].map(t =>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 14px", border: "none", borderBottom: `3px solid ${tab === t.id ? theme.accent : "transparent"}`, background: "none", color: tab === t.id ? theme.accent : theme.textSecondary, fontSize: 13, fontWeight: 700, cursor: "pointer", position: "relative", whiteSpace: "nowrap" }}>
             {t.l}{t.alert && <span style={{ position: "absolute", top: 6, right: 4, width: 8, height: 8, borderRadius: "50%", background: theme.danger }} />}
           </button>
         )}
@@ -1122,6 +1309,8 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
 
       {tab === "clients" ? (
         <ClientRegistry clients={clients} pets={pets} setClients={setClients} setPets={setPets} />
+      ) : tab === "calendar" ? (
+        <CalendarView appointments={appointments} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {(tab === "today" ? todayApts : tab === "pending" ? pendingApts : [...appointments].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)))
@@ -1131,10 +1320,28 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
       )}
 
       {showNew && (
-        <Modal title="Nová objednávka" onClose={() => setShowNew(false)} wide footer={<><Btn variant="ghost" onClick={() => setShowNew(false)}>Zrušit</Btn><Btn variant="success" icon="check" disabled={!newApt.clientId || !newApt.petId || !newApt.procedureId || !newApt.time} onClick={handleSave}>Uložit</Btn></>}>
+        <Modal title="Nová objednávka" onClose={() => setShowNew(false)} wide footer={<><Btn variant="ghost" onClick={() => setShowNew(false)}>Zrušit</Btn><Btn variant="success" icon="check" disabled={!canSaveNew} onClick={handleSave}>Uložit</Btn></>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Select label="Klient" required value={newApt.clientId} onChange={e => setNewApt({ ...newApt, clientId: e.target.value, petId: "" })}><option value="">— vyberte —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>)}</Select>
-            {newApt.clientId && <Select label="Zvíře" required value={newApt.petId} onChange={e => setNewApt({ ...newApt, petId: e.target.value })}><option value="">— vyberte —</option>{selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}</Select>}
+            <div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                <button onClick={() => setClientMode("select")} style={{ padding: "6px 14px", borderRadius: 6, border: `1.5px solid ${clientMode === "select" ? theme.accent : theme.border}`, background: clientMode === "select" ? theme.accentLight : "white", color: clientMode === "select" ? theme.accent : theme.textSecondary, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>📋 Z číselníku</button>
+                <button onClick={() => setClientMode("manual")} style={{ padding: "6px 14px", borderRadius: 6, border: `1.5px solid ${clientMode === "manual" ? theme.accent : theme.border}`, background: clientMode === "manual" ? theme.accentLight : "white", color: clientMode === "manual" ? theme.accent : theme.textSecondary, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✏️ Ručně</button>
+              </div>
+              {clientMode === "select" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <Select label="Klient" required value={newApt.clientId} onChange={e => setNewApt({ ...newApt, clientId: e.target.value, petId: "" })}><option value="">— vyberte —</option>{clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName} ({c.phone})</option>)}</Select>
+                  {newApt.clientId && <Select label="Zvíře" required value={newApt.petId} onChange={e => setNewApt({ ...newApt, petId: e.target.value })}><option value="">— vyberte —</option>{selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}</Select>}
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, background: theme.bg, borderRadius: theme.radius }}>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 2 }}><Input label="Jméno klienta" required value={newApt.manualName} onChange={e => setNewApt({ ...newApt, manualName: e.target.value })} placeholder="Příjmení Jméno" /></div>
+                    <div style={{ flex: 1 }}><Input label="Telefon" icon="phone" value={newApt.manualPhone} onChange={e => setNewApt({ ...newApt, manualPhone: e.target.value })} placeholder="+420..." /></div>
+                  </div>
+                  <Input label="Zvíře (jméno, druh)" value={newApt.manualPet} onChange={e => setNewApt({ ...newApt, manualPet: e.target.value })} placeholder="Rex, pes" />
+                </div>
+              )}
+            </div>
             <Select label="Procedura" required value={newApt.procedureId} onChange={e => setNewApt({ ...newApt, procedureId: e.target.value, time: "" })}><option value="">— vyberte —</option>{PROCEDURES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}</Select>
             <Select label="Lékař" value={newApt.doctorId} onChange={e => setNewApt({ ...newApt, doctorId: e.target.value, time: "" })}><option value="">— kdokoliv —</option>{config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</Select>
             {newApt.procedureId && (
@@ -1144,6 +1351,12 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
             )}
             {newApt.time && <div style={{ padding: 8, background: theme.successLight, borderRadius: theme.radiusSm, fontSize: 13, color: theme.success, fontWeight: 600 }}>✓ Termín: <span style={{ fontFamily: MONO }}>{newApt.date} {newApt.time}</span></div>}
             <Input label="Poznámka" textarea value={newApt.note} onChange={e => setNewApt({ ...newApt, note: e.target.value })} />
+            {clientMode === "manual" && newApt.manualPhone && (
+              <div style={{ padding: 8, background: theme.successLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.success }}>📱 SMS upozornění bude odesláno na <strong>{newApt.manualPhone}</strong></div>
+            )}
+            {clientMode === "manual" && !newApt.manualPhone && (
+              <div style={{ padding: 8, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.warning }}>⚠️ Bez telefonu nebude odesláno SMS upozornění</div>
+            )}
           </div>
         </Modal>
       )}
@@ -1333,6 +1546,7 @@ export default function VetApp() {
 
       {editApt && <EditAptModal apt={editApt} config={config} clients={clients} pets={pets} onSave={handleEditSave} onClose={() => setEditApt(null)} />}
       {smsApt && <SmsModal apt={smsApt.apt} client={smsApt.client} pets={pets} config={config} onClose={() => setSmsApt(null)} />}
+      <PwaInstallBanner />
     </div>
   );
 }
