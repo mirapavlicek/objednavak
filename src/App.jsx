@@ -171,6 +171,8 @@ const Icon = ({ name, size = 16 }) => {
     settings: <svg {...s}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
     database: <svg {...s}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>,
     alert: <svg {...s}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+    userX: <svg {...s}><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/></svg>,
+    sms: <svg {...s}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
   };
   return icons[name] || null;
 };
@@ -236,12 +238,21 @@ function StatBox({ label, value, color, icon }) {
 }
 
 // ─── APT ROW ───
-function AptRow({ apt, clients, pets, config, onAction, role }) {
+function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, role }) {
   const client = clients.find(c => c.id === apt.clientId);
   const pet = pets.find(p => p.id === apt.petId);
   const proc = PROCEDURES.find(p => p.id === apt.procedureId);
   const doc = config.doctors.find(d => d.id === apt.doctorId);
   const endTime = fromMin(toMin(apt.time) + apt.duration);
+  const canEdit = role === "reception" || role === "manager";
+  const canNoShow = role === "reception" && ["confirmed", "arrived"].includes(apt.status);
+  const canSms = (role === "reception" || role === "manager") && client?.phone;
+  const IconBtn = ({ icon, title, color, onClick }) => (
+    <button title={title} onClick={onClick} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px solid ${color}30`, borderRadius: 6, background: color + "08", color, cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}
+      onMouseEnter={e => { e.currentTarget.style.background = color + "20"; }} onMouseLeave={e => { e.currentTarget.style.background = color + "08"; }}>
+      <Icon name={icon} size={14} />
+    </button>
+  );
   return (
     <div style={{ padding: "12px 16px", borderRadius: theme.radius, border: `1.5px solid ${proc?.color || theme.border}20`, borderLeft: `4px solid ${proc?.color || theme.border}`, background: "white", boxShadow: theme.shadow }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
@@ -262,12 +273,15 @@ function AptRow({ apt, clients, pets, config, onAction, role }) {
           {apt.note && <div style={{ fontSize: 12, color: theme.textSecondary }}>📋 {apt.note}</div>}
         </div>
         {role !== "public" && (
-          <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 4, flexShrink: 0, flexWrap: "wrap", alignItems: "center" }}>
             {role === "reception" && apt.status === "pending" && <><Btn small variant="success" icon="check" onClick={() => onAction(apt.id, "confirm")}>Potvrdit</Btn><Btn small variant="danger" icon="x" onClick={() => onAction(apt.id, "reject")}>Zamítnout</Btn></>}
             {role === "reception" && apt.status === "confirmed" && <Btn small variant="outline" icon="check" onClick={() => onAction(apt.id, "arrive")}>Přišel</Btn>}
             {(role === "reception" || role === "doctor") && apt.status === "arrived" && <Btn small variant="primary" icon="chevronRight" onClick={() => onAction(apt.id, "start")}>Převzít</Btn>}
             {(role === "reception" || role === "doctor") && apt.status === "in_progress" && <Btn small variant="success" icon="check" onClick={() => onAction(apt.id, "complete")}>Hotovo</Btn>}
             {role === "reception" && ["confirmed", "pending"].includes(apt.status) && <Btn small variant="ghost" icon="move" onClick={() => onAction(apt.id, "reschedule")}>Přesunout</Btn>}
+            {canNoShow && <IconBtn icon="userX" title="Nedostavil se" color={theme.danger} onClick={() => onAction(apt.id, "no_show")} />}
+            {canEdit && !["completed", "rejected", "no_show"].includes(apt.status) && <IconBtn icon="edit" title="Upravit" color={theme.accent} onClick={() => onEdit(apt)} />}
+            {canSms && <IconBtn icon="sms" title="Poslat SMS" color="#059669" onClick={() => onSms(apt, client)} />}
           </div>
         )}
       </div>
@@ -339,6 +353,128 @@ function FreeSlotModal({ config, appointments, onClose, onSelect }) {
   );
 }
 
+// ─── EDIT APPOINTMENT MODAL ───
+function EditAptModal({ apt, config, clients, pets, onSave, onClose }) {
+  const [form, setForm] = useState({ ...apt });
+  const selPets = pets.filter(p => p.clientId === form.clientId);
+  return (
+    <Modal title="✏️ Upravit objednávku" subtitle={`ID: ${apt.id}`} onClose={onClose}
+      footer={<><Btn variant="ghost" onClick={onClose}>Zrušit</Btn><Btn variant="primary" icon="check" onClick={() => { onSave(form); onClose(); }}>Uložit změny</Btn></>}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <Select label="Klient" value={form.clientId} onChange={e => setForm({ ...form, clientId: e.target.value, petId: "" })}>
+          {clients.map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName}</option>)}
+        </Select>
+        <Select label="Zvíře" value={form.petId} onChange={e => setForm({ ...form, petId: e.target.value })}>
+          <option value="">— vyberte —</option>
+          {selPets.map(p => <option key={p.id} value={p.id}>🐾 {p.name} ({p.species})</option>)}
+        </Select>
+        <Select label="Procedura" value={form.procedureId} onChange={e => { const proc = PROCEDURES.find(p => p.id === e.target.value); setForm({ ...form, procedureId: e.target.value, duration: proc?.duration || form.duration }); }}>
+          {PROCEDURES.map(p => <option key={p.id} value={p.id}>{p.name} ({p.duration}')</option>)}
+        </Select>
+        <Select label="Lékař" value={form.doctorId} onChange={e => setForm({ ...form, doctorId: e.target.value })}>
+          {config.doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </Select>
+        <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ flex: 1 }}><Input label="Datum" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
+          <div style={{ flex: 1 }}><Input label="Čas" type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} step="900" /></div>
+          <div style={{ flex: 1 }}><Input label="Délka (min)" type="number" value={form.duration} onChange={e => setForm({ ...form, duration: parseInt(e.target.value) || 15 })} style={{ width: "100%" }} /></div>
+        </div>
+        <Select label="Stav" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+          {Object.entries(STATUSES).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+        </Select>
+        <Input label="Poznámka" textarea value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
+      </div>
+    </Modal>
+  );
+}
+
+// ─── SMS MODAL ───
+const SMS_TEMPLATES = [
+  { id: "confirm", label: "Potvrzení termínu", text: (apt, pet, proc) => `Potvrzujeme Vasi objednavku ${proc?.name || ""} pro ${pet?.name || ""} dne ${apt.date} v ${apt.time}. Veterinarni klinika VetBook.` },
+  { id: "reminder", label: "Připomínka termínu", text: (apt, pet, proc) => `Pripominame termin ${proc?.name || ""} pro ${pet?.name || ""} zitra ${apt.date} v ${apt.time}. Veterinarni klinika VetBook.` },
+  { id: "cancel", label: "Zrušení termínu", text: (apt, pet, proc) => `Vas termin ${apt.date} v ${apt.time} pro ${pet?.name || ""} byl zrusen. Kontaktujte nas pro novy termin. VetBook.` },
+  { id: "ready", label: "Výsledky připraveny", text: (apt, pet) => `Vysledky vysetreni pro ${pet?.name || ""} jsou pripraveny k vyzvednuti. Veterinarni klinika VetBook.` },
+  { id: "custom", label: "Vlastní zpráva", text: () => "" },
+];
+
+function SmsModal({ apt, client, pets, config, onClose }) {
+  const pet = pets.find(p => p.id === apt.petId);
+  const proc = PROCEDURES.find(p => p.id === apt.procedureId);
+  const [templateId, setTemplateId] = useState("confirm");
+  const tmpl = SMS_TEMPLATES.find(t => t.id === templateId);
+  const [text, setText] = useState(tmpl.text(apt, pet, proc));
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleTemplateChange = (id) => {
+    setTemplateId(id);
+    const t = SMS_TEMPLATES.find(tt => tt.id === id);
+    setText(t.text(apt, pet, proc));
+  };
+
+  const handleSend = async () => {
+    const apiKey = config.smsApiKey;
+    if (!apiKey) { alert("Nastavte SMS Manager API klíč v Nastavení → SMS upozornění"); return; }
+    setSending(true);
+    try {
+      // SmsManager.cz JSON API v2
+      const res = await fetch("https://api.smsmngr.com/v2/message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify({ body: text, to: [{ phone_number: "+420" + client.phone.replace(/^(\+420|420)/, "") }] }),
+      });
+      const data = await res.json();
+      if (data.accepted && data.accepted.length > 0) {
+        setResult({ ok: true, id: data.accepted[0].message_id });
+      } else {
+        setResult({ ok: false, error: data.rejected?.[0]?.reason || "Neznámá chyba" });
+      }
+    } catch (err) {
+      setResult({ ok: false, error: err.message });
+    }
+    setSending(false);
+  };
+
+  return (
+    <Modal title="📱 Odeslat SMS" subtitle={`${client.firstName} ${client.lastName} — ${client.phone}`} onClose={onClose}
+      footer={!result ? <><Btn variant="ghost" onClick={onClose}>Zrušit</Btn><Btn variant="success" icon="send" disabled={!text || sending} onClick={handleSend}>{sending ? "Odesílám..." : "Odeslat SMS"}</Btn></> : <Btn onClick={onClose}>Zavřít</Btn>}>
+      {result ? (
+        <div style={{ padding: 20, textAlign: "center" }}>
+          {result.ok ? (
+            <><div style={{ fontSize: 40, marginBottom: 8 }}>✅</div><div style={{ fontWeight: 700, color: theme.success }}>SMS odeslána!</div><div style={{ fontSize: 12, color: theme.textMuted, marginTop: 4, fontFamily: MONO }}>ID: {result.id}</div></>
+          ) : (
+            <><div style={{ fontSize: 40, marginBottom: 8 }}>❌</div><div style={{ fontWeight: 700, color: theme.danger }}>Chyba při odesílání</div><div style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>{result.error}</div></>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Šablona</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {SMS_TEMPLATES.map(t => (
+                <button key={t.id} onClick={() => handleTemplateChange(t.id)} style={{ padding: "5px 12px", borderRadius: 16, border: `1.5px solid ${templateId === t.id ? theme.accent : theme.border}`, background: templateId === t.id ? theme.accentLight : "white", color: templateId === t.id ? theme.accent : theme.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{t.label}</button>
+              ))}
+            </div>
+          </div>
+          <Input label={`Zpráva (${text.length}/160 znaků)`} textarea value={text} onChange={e => setText(e.target.value)} style={{ minHeight: 100 }} />
+          <div style={{ padding: 10, background: theme.bg, borderRadius: theme.radiusSm, fontSize: 12, color: theme.textMuted }}>
+            📱 Příjemce: <strong>+420{client.phone.replace(/^(\+420|420)/, "")}</strong> — Brána: <strong>SmsManager.cz</strong> (JSON API v2)
+            {text.length > 160 && <span style={{ color: theme.warning, marginLeft: 8 }}>⚠️ Zpráva přesahuje 160 znaků — bude rozdělena</span>}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ─── PASSWORD GENERATOR ───
+const generatePassword = () => {
+  const chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let pw = "";
+  for (let i = 0; i < 8; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+  return pw;
+};
+
 // ─── SETTINGS VIEW ───
 function SettingsView({ config, setConfig }) {
   const [tab, setTab] = useState("hours");
@@ -348,6 +484,7 @@ function SettingsView({ config, setConfig }) {
     { id: "doctors", label: "👨‍⚕️ Lékaři" },
     { id: "blocks", label: "📋 Bloky procedur" },
     { id: "acute", label: "🚨 Akutní sloty" },
+    { id: "sms", label: "📱 SMS upozornění" },
     { id: "winvet", label: "🔗 WinVet integrace" },
   ];
 
@@ -443,6 +580,39 @@ function SettingsView({ config, setConfig }) {
             <div style={{ fontSize: 13, color: theme.textSecondary }}>
               Aktuální nastavení: <strong>{config.acuteBufferSlots} slotů</strong> po <strong>{config.acuteBufferSpacing} min</strong> — akutní se řadí podle <strong>času příchodu</strong>, ne podle objednání.
             </div>
+          </div>
+        </Card>
+      )}
+
+      {tab === "sms" && (
+        <Card title="📱 SMS upozornění — SmsManager.cz" accent="#059669">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ padding: 14, background: theme.successLight, borderRadius: theme.radius, fontSize: 13, color: theme.success }}>
+              SMS brána přes <strong>SmsManager.cz</strong> (JSON API v2). Umožňuje automatické i manuální odesílání SMS klientům — potvrzení termínu, připomínky, zrušení.
+            </div>
+            <Input label="API klíč (SmsManager.cz)" icon="edit" value={config.smsApiKey || ""} onChange={e => setConfig({ ...config, smsApiKey: e.target.value })} placeholder="Váš API klíč z SmsManager.cz" />
+            <Input label="Odesílatel (nepovinné)" value={config.smsSender || ""} onChange={e => setConfig({ ...config, smsSender: e.target.value })} placeholder="Název ordinace nebo tel. číslo" />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Automatické SMS</label>
+              {[
+                { key: "smsOnConfirm", label: "Při potvrzení termínu recepcí" },
+                { key: "smsOnReminder", label: "Připomínka den před termínem" },
+                { key: "smsOnCancel", label: "Při zrušení/zamítnutí termínu" },
+              ].map(opt => (
+                <label key={opt.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!config[opt.key]} onChange={e => setConfig({ ...config, [opt.key]: e.target.checked })} />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
+            <div style={{ padding: 10, background: theme.bg, borderRadius: theme.radiusSm, fontSize: 12, color: theme.textMuted }}>
+              💡 Ruční odeslání SMS: klikněte na ikonu 💬 u libovolné objednávky. Šablony zpráv si můžete upravit.<br/>
+              📡 Endpoint: <code style={{ fontFamily: MONO }}>POST https://api.smsmngr.com/v2/message</code> — Header: <code style={{ fontFamily: MONO }}>x-api-key</code>
+            </div>
+            <Btn variant="outline" icon="send" onClick={() => {
+              if (!config.smsApiKey) { alert("Vyplňte API klíč"); return; }
+              alert("Testovací SMS odeslána na číslo z nastavení (v produkci).");
+            }}>Odeslat testovací SMS</Btn>
           </div>
         </Card>
       )}
@@ -574,11 +744,20 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
       )}
 
       {step === "register" && (
-        <Card title="Registrace" accent={theme.accent}>
+        <Card title="Registrace nového klienta" accent={theme.accent}>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div style={{ display: "flex", gap: 12 }}><div style={{ flex: 1 }}><Input label="Jméno" required /></div><div style={{ flex: 1 }}><Input label="Příjmení" required /></div></div>
-            <Input label="Telefon" required icon="phone" /><Input label="E-mail" required icon="user" />
-            <div style={{ display: "flex", gap: 8 }}><Btn variant="ghost" onClick={() => setStep("login")}>← Zpět</Btn><Btn onClick={() => { alert("Registrace odeslána!"); setStep("login"); }} style={{ flex: 1 }}>Registrovat</Btn></div>
+            <Input label="Telefon" required icon="phone" placeholder="+420 ..." />
+            <Input label="E-mail" required icon="user" placeholder="vas@email.cz" />
+            <div style={{ padding: 14, background: theme.successLight, borderRadius: theme.radius, border: `1.5px solid ${theme.success}30` }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: theme.success, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>🔑 Vygenerované heslo</div>
+              <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 800, color: theme.text, letterSpacing: "0.1em", textAlign: "center", padding: "8px 0", userSelect: "all" }}>{generatePassword()}</div>
+              <div style={{ fontSize: 11, color: theme.textSecondary, textAlign: "center", marginTop: 4 }}>Heslo si zapište nebo vyfotografujte. Bude odesláno na zadaný e-mail a SMS.</div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setStep("login")}>← Zpět</Btn>
+              <Btn onClick={() => { alert("Registrace dokončena! Heslo bylo odesláno na e-mail a SMS."); setStep("login"); }} style={{ flex: 1 }}>Registrovat a odeslat heslo</Btn>
+            </div>
           </div>
         </Card>
       )}
@@ -639,7 +818,7 @@ function PublicView({ onSubmitRequest, clients, pets, config, appointments }) {
 }
 
 // ─── RECEPTION VIEW ───
-function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt }) {
+function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt, onEdit, onSms }) {
   const [tab, setTab] = useState("today");
   const [showNew, setShowNew] = useState(false);
   const [showSlotFinder, setShowSlotFinder] = useState(false);
@@ -668,7 +847,7 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
       {waitingApts.length > 0 && (
         <Card accent={theme.warning} noPad>
           <div style={{ padding: "12px 20px", background: theme.warningLight }}><span style={{ fontWeight: 700, color: theme.warning }}>🏠 Čekárna — {waitingApts.length}</span></div>
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>{waitingApts.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="reception" />)}</div>
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>{waitingApts.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="reception" />)}</div>
         </Card>
       )}
 
@@ -685,7 +864,7 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {(tab === "today" ? todayApts : tab === "pending" ? pendingApts : appointments.sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)))
-          .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="reception" />)}
+          .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="reception" />)}
         {((tab === "today" && !todayApts.length) || (tab === "pending" && !pendingApts.length)) && <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné záznamy</div>}
       </div>
 
@@ -712,7 +891,7 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
 }
 
 // ─── DOCTOR VIEW ───
-function DoctorView({ appointments, clients, pets, config, onAction }) {
+function DoctorView({ appointments, clients, pets, config, onAction, onEdit, onSms }) {
   const [selDoc, setSelDoc] = useState(config.doctors[0]?.id || "");
   const todayApts = appointments.filter(a => a.date === TODAY && a.doctorId === selDoc).sort((a, b) => a.time.localeCompare(b.time));
   const waiting = todayApts.filter(a => a.status === "arrived");
@@ -734,16 +913,16 @@ function DoctorView({ appointments, clients, pets, config, onAction }) {
         <StatBox label="Další" value={upcoming.length} color={theme.accent} icon="📋" />
         <StatBox label="Hotovo" value={completed.length} color={theme.success} icon="✔" />
       </div>
-      {inProg.length > 0 && <Card accent={theme.purple} title="🩺 Právě u mě"><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{inProg.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}</div></Card>}
-      {waiting.length > 0 && <Card accent={theme.warning} title={`🏠 Čekárna (${waiting.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{waiting.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}</div></Card>}
-      <Card title={`📋 Nadcházející (${upcoming.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{upcoming.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}{!upcoming.length && <div style={{ padding: 20, textAlign: "center", color: theme.textMuted }}>Žádné další</div>}</div></Card>
-      {completed.length > 0 && <Card title={`✔ Hotovo (${completed.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 6, opacity: 0.7 }}>{completed.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} role="doctor" />)}</div></Card>}
+      {inProg.length > 0 && <Card accent={theme.purple} title="🩺 Právě u mě"><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{inProg.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="doctor" />)}</div></Card>}
+      {waiting.length > 0 && <Card accent={theme.warning} title={`🏠 Čekárna (${waiting.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{waiting.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="doctor" />)}</div></Card>}
+      <Card title={`📋 Nadcházející (${upcoming.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{upcoming.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="doctor" />)}{!upcoming.length && <div style={{ padding: 20, textAlign: "center", color: theme.textMuted }}>Žádné další</div>}</div></Card>
+      {completed.length > 0 && <Card title={`✔ Hotovo (${completed.length})`}><div style={{ display: "flex", flexDirection: "column", gap: 6, opacity: 0.7 }}>{completed.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="doctor" />)}</div></Card>}
     </div>
   );
 }
 
 // ─── MANAGER VIEW ───
-function ManagerView({ appointments, clients, config }) {
+function ManagerView({ appointments, clients, pets, config, onAction, onEdit, onSms }) {
   const todayApts = appointments.filter(a => a.date === TODAY);
   const totalMin = todayApts.reduce((s, a) => s + a.duration, 0);
   const byProc = PROCEDURES.map(p => ({ ...p, count: appointments.filter(a => a.procedureId === p.id).length })).filter(p => p.count > 0).sort((a, b) => b.count - a.count);
@@ -816,6 +995,8 @@ export default function VetApp() {
   const [pets] = useState(DEMO_PETS);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
   const [showSettings, setShowSettings] = useState(false);
+  const [editApt, setEditApt] = useState(null);
+  const [smsApt, setSmsApt] = useState(null);
 
   const handleAction = (id, action) => {
     setAppointments(prev => prev.map(a => {
@@ -826,12 +1007,15 @@ export default function VetApp() {
         case "arrive": return { ...a, status: "arrived", arrivalTime: new Date().toTimeString().slice(0, 5) };
         case "start": return { ...a, status: "in_progress" };
         case "complete": return { ...a, status: "completed" };
+        case "no_show": return { ...a, status: "no_show" };
         case "reschedule": alert("Přesunutí — v produkci kalendářový dialog"); return a;
         default: return a;
       }
     }));
   };
   const handleAdd = apt => setAppointments(prev => [...prev, apt]);
+  const handleEditSave = (updated) => setAppointments(prev => prev.map(a => a.id === updated.id ? updated : a));
+  const handleSmsOpen = (apt, client) => setSmsApt({ apt, client });
   const roleInfo = ROLES[role];
   const dateStr = new Date().toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long" });
 
@@ -873,10 +1057,13 @@ export default function VetApp() {
       <main style={{ padding: "20px 24px", maxWidth: role === "public" && !showSettings ? 700 : 1200, margin: "0 auto" }}>
         {showSettings ? <SettingsView config={config} setConfig={setConfig} /> :
           role === "public" ? <PublicView onSubmitRequest={handleAdd} clients={clients} pets={pets} config={config} appointments={appointments} /> :
-          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} /> :
-          role === "doctor" ? <DoctorView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} /> :
-          <ManagerView appointments={appointments} clients={clients} config={config} />}
+          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} onEdit={setEditApt} onSms={handleSmsOpen} /> :
+          role === "doctor" ? <DoctorView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} /> :
+          <ManagerView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} />}
       </main>
+
+      {editApt && <EditAptModal apt={editApt} config={config} clients={clients} pets={pets} onSave={handleEditSave} onClose={() => setEditApt(null)} />}
+      {smsApt && <SmsModal apt={smsApt.apt} client={smsApt.client} pets={pets} config={config} onClose={() => setSmsApt(null)} />}
     </div>
   );
 }
