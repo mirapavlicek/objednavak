@@ -1,3 +1,27 @@
 node_modules
 dist
 .vercel
+.claude
+
+# Backend
+backend/vendor
+backend/.env
+backend/storage/logs/*
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+backend/bootstrap/cache/*
+!backend/storage/logs/.gitkeep
+!backend/storage/framework/cache/.gitkeep
+!backend/storage/framework/sessions/.gitkeep
+!backend/storage/framework/views/.gitkeep
+!backend/bootstrap/cache/.gitkeep
+
+# Frontend
+frontend/node_modules
+frontend/dist
+
+# Deploy
+/tmp/
+*.swp
+.DS_Store

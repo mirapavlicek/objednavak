@@ -1,0 +1,76 @@
+<?php
+
+return [
+    'accepted'             => 'The :attribute must be accepted.',
+    'active_url'           => 'The :attribute is not a valid URL.',
+    'after'                => 'The :attribute must be a date after :date.',
+    'after_or_equal'       => 'The :attribute must be a date after or equal to :date.',
+    'alpha'                => 'The :attribute may only contain letters.',
+    'alpha_dash'           => 'The :attribute may only contain letters, numbers, dashes and underscores.',
+    'alpha_num'            => 'The :attribute may only contain letters and numbers.',
+    'array'                => 'The :attribute must be an array.',
+    'before'               => 'The :attribute must be a date before :date.',
+    'before_or_equal'      => 'The :attribute must be a date before or equal to :date.',
+    'between'              => [
+        'numeric' => 'The :attribute must be between :min and :max.',
+        'file'    => 'The :attribute must be between :min and :max kilobytes.',
+        'string'  => 'The :attribute must be between :min and :max characters.',
+        'array'   => 'The :attribute must have between :min and :max items.',
+    ],
+    'boolean'              => 'The :attribute field must be true or false.',
+    'confirmed'            => 'The :attribute confirmation does not match.',
+    'date'                 => 'The :attribute is not a valid date.',
+    'email'                => 'The :attribute must be a valid email address.',
+    'exists'               => 'The selected :attribute is invalid.',
+    'filled'               => 'The :attribute field must have a value.',
+    'max'                  => [
+        'numeric' => 'The :attribute may not be greater than :max.',
+        'file'    => 'The :attribute may not be greater than :max kilobytes.',
+        'string'  => 'The :attribute may not be greater than :max characters.',
+        'array'   => 'The :attribute may not have more than :max items.',
+    ],
+    'min'                  => [
+        'numeric' => 'The :attribute must be at least :min.',
+        'file'    => 'The :attribute must be at least :min kilobytes.',
+        'string'  => 'The :attribute must be at least :min characters.',
+        'array'   => 'The :attribute must have at least :min items.',
+    ],
+    'numeric'              => 'The :attribute must be a number.',
+    'required'             => 'The :attribute field is required.',
+    'same'                 => 'The :attribute and :other must match.',
+    'size'                 => [
+        'numeric' => 'The :attribute must be :size.',
+        'file'    => 'The :attribute must be :size kilobytes.',
+        'string'  => 'The :attribute must be :size characters.',
+        'array'   => 'The :attribute must contain :size items.',
+    ],
+    'string'               => 'The :attribute must be a string.',
+    'unique'               => 'The :attribute has already been taken.',
+    'url'                  => 'The :attribute format is invalid.',
+
+    'custom' => [
+        'code' => [
+            'required' => 'Enter the verification code.',
+            'size'     => 'The code must be exactly :size characters.',
+        ],
+        'new_password' => [
+            'required'  => 'Enter a new password.',
+            'min'       => 'Password must be at least :min characters.',
+            'confirmed' => 'Passwords do not match.',
+        ],
+    ],
+
+    'attributes' => [
+        'email'        => 'email',
+        'password'     => 'password',
+        'old_password' => 'current password',
+        'new_password' => 'new password',
+        'first_name'   => 'first name',
+        'last_name'    => 'last name',
+        'phone'        => 'phone',
+        'name'         => 'name',
+        'species'      => 'species',
+        'breed'        => 'breed',
+        'code'         => 'code',
+    ],
+];
