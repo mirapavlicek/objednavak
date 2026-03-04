@@ -186,6 +186,7 @@ const Icon = ({ name, size = 16 }) => {
     alert: <svg {...s}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
     userX: <svg {...s}><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="18" y1="8" x2="23" y2="13"/><line x1="23" y1="8" x2="18" y2="13"/></svg>,
     sms: <svg {...s}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>,
+    trash: <svg {...s}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>,
   };
   return icons[name] || null;
 };
@@ -251,7 +252,7 @@ function StatBox({ label, value, color, icon }) {
 }
 
 // ─── APT ROW ───
-function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, role }) {
+function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, onDelete, role }) {
   const client = clients.find(c => c.id === apt.clientId);
   const pet = pets.find(p => p.id === apt.petId);
   const proc = PROCEDURES.find(p => p.id === apt.procedureId);
@@ -300,6 +301,7 @@ function AptRow({ apt, clients, pets, config, onAction, onEdit, onSms, role }) {
             {canNoShow && <IconBtn icon="userX" title="Nedostavil se" color={theme.danger} onClick={() => onAction(apt.id, "no_show")} />}
             {canEdit && !["completed", "rejected", "no_show"].includes(apt.status) && <IconBtn icon="edit" title="Upravit" color={theme.accent} onClick={() => onEdit(apt)} />}
             {canSms && <IconBtn icon="sms" title="Poslat SMS" color="#059669" onClick={() => onSms(apt, smsClient)} />}
+            {canEdit && onDelete && <IconBtn icon="trash" title="Smazat objednávku" color={theme.danger} onClick={() => { if (confirm("Smazat objednávku?")) onDelete(apt.id); }} />}
           </div>
         )}
       </div>
@@ -372,13 +374,13 @@ function FreeSlotModal({ config, appointments, onClose, onSelect }) {
 }
 
 // ─── EDIT APPOINTMENT MODAL ───
-function EditAptModal({ apt, config, clients, pets, onSave, onClose }) {
+function EditAptModal({ apt, config, clients, pets, onSave, onClose, onDelete }) {
   const [form, setForm] = useState({ ...apt });
   const isManual = !form.clientId;
   const selPets = pets.filter(p => p.clientId === form.clientId);
   return (
     <Modal title="✏️ Upravit objednávku" subtitle={`ID: ${apt.id}`} onClose={onClose}
-      footer={<><Btn variant="ghost" onClick={onClose}>Zrušit</Btn><Btn variant="primary" icon="check" onClick={() => { onSave(form); onClose(); }}>Uložit změny</Btn></>}>
+      footer={<div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>{onDelete && <Btn variant="danger" icon="trash" onClick={() => { if (confirm("Opravdu smazat tuto objednávku?")) { onDelete(apt.id); onClose(); } }}>Smazat</Btn>}<div style={{ display: "flex", gap: 8, marginLeft: "auto" }}><Btn variant="ghost" onClick={onClose}>Zrušit</Btn><Btn variant="primary" icon="check" onClick={() => { onSave(form); onClose(); }}>Uložit změny</Btn></div></div>}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {isManual ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12, background: theme.bg, borderRadius: theme.radius }}>
@@ -692,6 +694,9 @@ function ClientRegistry({ clients, pets, setClients, setPets }) {
 function SettingsView({ config, setConfig }) {
   const [tab, setTab] = useState("hours");
   const [winvetTab, setWinvetTab] = useState("info");
+  const [editBlock, setEditBlock] = useState(null);
+  const BLOCK_CATEGORIES = [...new Set(PROCEDURES.map(p => p.category))];
+  const CATEGORY_LABELS = { prevence: "Prevence", chirurgie: "Chirurgie", diagnostika: "Diagnostika", specialni: "Speciální", akutni: "Akutní", ostatni: "Ostatní" };
   const tabs = [
     { id: "hours", label: "⏰ Otvírací doba" },
     { id: "doctors", label: "👨‍⚕️ Lékaři" },
@@ -760,25 +765,99 @@ function SettingsView({ config, setConfig }) {
       )}
 
       {tab === "blocks" && (
-        <Card title="📋 Bloky procedur — rozdělení dne">
+        <Card title="📋 Bloky procedur — rozdělení dne" action={!editBlock && <Btn small icon="plus" onClick={() => setEditBlock({ id: "", label: "", timeFrom: "08:00", timeTo: "12:00", categories: [], doctorIds: [] })}>Nový blok</Btn>}>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {config.procedureBlocks.map((block, idx) => (
-              <div key={block.id} style={{ padding: 14, border: `1px solid ${theme.border}`, borderRadius: theme.radius, background: theme.bg }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{block.label}</span>
-                  <span style={{ fontFamily: MONO, fontSize: 13, color: theme.accent, fontWeight: 600 }}>{block.timeFrom}–{block.timeTo}</span>
+            {config.procedureBlocks.map(block => (
+              editBlock && editBlock.id === block.id ? (
+                <div key={block.id} style={{ padding: 16, border: `2px solid ${theme.accent}`, borderRadius: theme.radius, background: theme.accentLight + "40" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <Input label="Název bloku" value={editBlock.label} onChange={e => setEditBlock({ ...editBlock, label: e.target.value })} />
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div style={{ flex: 1 }}><Input label="Od" type="time" value={editBlock.timeFrom} onChange={e => setEditBlock({ ...editBlock, timeFrom: e.target.value })} /></div>
+                      <div style={{ flex: 1 }}><Input label="Do" type="time" value={editBlock.timeTo} onChange={e => setEditBlock({ ...editBlock, timeTo: e.target.value })} /></div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Kategorie</label>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {BLOCK_CATEGORIES.map(cat => {
+                          const sel = editBlock.categories.includes(cat);
+                          return <button key={cat} onClick={() => setEditBlock({ ...editBlock, categories: sel ? editBlock.categories.filter(c => c !== cat) : [...editBlock.categories, cat] })} style={{ padding: "4px 12px", borderRadius: 16, border: `1.5px solid ${sel ? theme.accent : theme.border}`, background: sel ? theme.accentLight : "white", color: sel ? theme.accent : theme.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{CATEGORY_LABELS[cat] || cat}</button>;
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Lékaři</label>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {config.doctors.map(d => {
+                          const sel = editBlock.doctorIds.includes(d.id);
+                          return <button key={d.id} onClick={() => setEditBlock({ ...editBlock, doctorIds: sel ? editBlock.doctorIds.filter(id => id !== d.id) : [...editBlock.doctorIds, d.id] })} style={{ padding: "4px 12px", borderRadius: 16, border: `1.5px solid ${sel ? d.color : theme.border}`, background: sel ? d.color + "15" : "white", color: sel ? d.color : theme.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{d.name.split(" ").pop()}</button>;
+                        })}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <Btn small variant="ghost" onClick={() => setEditBlock(null)}>Zrušit</Btn>
+                      <Btn small variant="primary" icon="check" disabled={!editBlock.label || !editBlock.timeFrom || !editBlock.timeTo} onClick={() => { setConfig(prev => ({ ...prev, procedureBlocks: prev.procedureBlocks.map(b => b.id === editBlock.id ? editBlock : b) })); setEditBlock(null); }}>Uložit</Btn>
+                    </div>
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: theme.textMuted, marginRight: 4 }}>Kategorie:</span>
-                  {block.categories.map(c => <span key={c} style={{ padding: "2px 8px", borderRadius: 10, background: theme.accentLight, color: theme.accent, fontSize: 11, fontWeight: 600 }}>{c}</span>)}
+              ) : (
+                <div key={block.id} style={{ padding: 14, border: `1px solid ${theme.border}`, borderRadius: theme.radius, background: theme.bg }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8, flexWrap: "wrap", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{block.label}</span>
+                      <span style={{ fontFamily: MONO, fontSize: 13, color: theme.accent, fontWeight: 600 }}>{block.timeFrom}–{block.timeTo}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button title="Upravit" onClick={() => setEditBlock({ ...block })} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px solid ${theme.accent}30`, borderRadius: 6, background: theme.accent + "08", color: theme.accent, cursor: "pointer" }}><Icon name="edit" size={14} /></button>
+                      <button title="Smazat" onClick={() => { if (confirm(`Smazat blok "${block.label}"?`)) setConfig(prev => ({ ...prev, procedureBlocks: prev.procedureBlocks.filter(b => b.id !== block.id) })); }} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px solid ${theme.danger}30`, borderRadius: 6, background: theme.danger + "08", color: theme.danger, cursor: "pointer" }}><Icon name="trash" size={14} /></button>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: theme.textMuted, marginRight: 4 }}>Kategorie:</span>
+                    {block.categories.map(c => <span key={c} style={{ padding: "2px 8px", borderRadius: 10, background: theme.accentLight, color: theme.accent, fontSize: 11, fontWeight: 600 }}>{CATEGORY_LABELS[c] || c}</span>)}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: theme.textMuted, marginRight: 4 }}>Lékaři:</span>
+                    {block.doctorIds.map(dId => { const d = config.doctors.find(x => x.id === dId); return d ? <span key={dId} style={{ padding: "2px 8px", borderRadius: 10, background: d.color + "15", color: d.color, fontSize: 11, fontWeight: 600 }}>{d.name.split(" ").pop()}</span> : null; })}
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: theme.textMuted, marginRight: 4 }}>Lékaři:</span>
-                  {block.doctorIds.map(dId => { const d = config.doctors.find(x => x.id === dId); return d ? <span key={dId} style={{ padding: "2px 8px", borderRadius: 10, background: d.color + "15", color: d.color, fontSize: 11, fontWeight: 600 }}>{d.name.split(" ").pop()}</span> : null; })}
+              )
+            ))}
+            {editBlock && !editBlock.id && (
+              <div style={{ padding: 16, border: `2px solid ${theme.success}`, borderRadius: theme.radius, background: theme.successLight + "40" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: theme.success, marginBottom: 12 }}>➕ Nový blok</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <Input label="Název bloku" value={editBlock.label} onChange={e => setEditBlock({ ...editBlock, label: e.target.value })} />
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}><Input label="Od" type="time" value={editBlock.timeFrom} onChange={e => setEditBlock({ ...editBlock, timeFrom: e.target.value })} /></div>
+                    <div style={{ flex: 1 }}><Input label="Do" type="time" value={editBlock.timeTo} onChange={e => setEditBlock({ ...editBlock, timeTo: e.target.value })} /></div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Kategorie</label>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {BLOCK_CATEGORIES.map(cat => {
+                        const sel = editBlock.categories.includes(cat);
+                        return <button key={cat} onClick={() => setEditBlock({ ...editBlock, categories: sel ? editBlock.categories.filter(c => c !== cat) : [...editBlock.categories, cat] })} style={{ padding: "4px 12px", borderRadius: 16, border: `1.5px solid ${sel ? theme.accent : theme.border}`, background: sel ? theme.accentLight : "white", color: sel ? theme.accent : theme.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{CATEGORY_LABELS[cat] || cat}</button>;
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>Lékaři</label>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {config.doctors.map(d => {
+                        const sel = editBlock.doctorIds.includes(d.id);
+                        return <button key={d.id} onClick={() => setEditBlock({ ...editBlock, doctorIds: sel ? editBlock.doctorIds.filter(id => id !== d.id) : [...editBlock.doctorIds, d.id] })} style={{ padding: "4px 12px", borderRadius: 16, border: `1.5px solid ${sel ? d.color : theme.border}`, background: sel ? d.color + "15" : "white", color: sel ? d.color : theme.textSecondary, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{d.name.split(" ").pop()}</button>;
+                      })}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <Btn small variant="ghost" onClick={() => setEditBlock(null)}>Zrušit</Btn>
+                    <Btn small variant="success" icon="check" disabled={!editBlock.label || !editBlock.timeFrom || !editBlock.timeTo} onClick={() => { setConfig(prev => ({ ...prev, procedureBlocks: [...prev.procedureBlocks, { ...editBlock, id: generateId() }] })); setEditBlock(null); }}>Přidat blok</Btn>
+                  </div>
                 </div>
               </div>
-            ))}
-            <div style={{ padding: 12, background: theme.warningLight, borderRadius: theme.radiusSm, fontSize: 12, color: theme.warning }}>💡 V produkci bude možné bloky přidávat, editovat a mazat. Toto je demo ukázka konfigurace.</div>
+            )}
+            {!config.procedureBlocks.length && !editBlock && <div style={{ padding: 20, textAlign: "center", color: theme.textMuted }}>Žádné bloky. Přidejte první blok tlačítkem nahoře.</div>}
           </div>
         </Card>
       )}
@@ -1363,7 +1442,7 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); r
 const getMonday = d => { const r = new Date(d); const day = r.getDay(); r.setDate(r.getDate() - (day === 0 ? 6 : day - 1)); return r; };
 
 // ─── CALENDAR VIEW ───
-function CalendarView({ appointments, clients, pets, config, onAction, onEdit, onSms }) {
+function CalendarView({ appointments, clients, pets, config, onAction, onEdit, onSms, onDelete }) {
   const [viewDate, setViewDate] = useState(TODAY);
   const [mode, setMode] = useState("week"); // day | week | month
 
@@ -1638,7 +1717,7 @@ function PwaInstallBanner() {
 }
 
 // ─── RECEPTION VIEW ───
-function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt, onEdit, onSms, setClients, setPets }) {
+function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt, onEdit, onSms, onDelete, setClients, setPets }) {
   const [tab, setTab] = useState("today");
   const [showNew, setShowNew] = useState(false);
   const [showAcute, setShowAcute] = useState(false);
@@ -1694,7 +1773,7 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
       {waitingApts.length > 0 && (
         <Card accent={theme.warning} noPad>
           <div style={{ padding: "12px 20px", background: theme.warningLight }}><span style={{ fontWeight: 700, color: theme.warning }}>🏠 Čekárna — {waitingApts.length}</span></div>
-          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>{waitingApts.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="reception" />)}</div>
+          <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>{waitingApts.map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} onDelete={onDelete} role="reception" />)}</div>
         </Card>
       )}
 
@@ -1713,11 +1792,11 @@ function ReceptionView({ appointments, clients, pets, config, onAction, onAddApt
       {tab === "clients" ? (
         <ClientRegistry clients={clients} pets={pets} setClients={setClients} setPets={setPets} />
       ) : tab === "calendar" ? (
-        <CalendarView appointments={appointments} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} />
+        <CalendarView appointments={appointments} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} onDelete={onDelete} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {(tab === "today" ? todayApts : tab === "pending" ? pendingApts : [...appointments].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)))
-            .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} role="reception" />)}
+            .map(a => <AptRow key={a.id} apt={a} clients={clients} pets={pets} config={config} onAction={onAction} onEdit={onEdit} onSms={onSms} onDelete={onDelete} role="reception" />)}
           {((tab === "today" && !todayApts.length) || (tab === "pending" && !pendingApts.length)) && <div style={{ padding: 40, textAlign: "center", color: theme.textMuted }}>Žádné záznamy</div>}
         </div>
       )}
@@ -1804,7 +1883,7 @@ function DoctorView({ appointments, clients, pets, config, onAction, onEdit, onS
 }
 
 // ─── MANAGER VIEW ───
-function ManagerView({ appointments, clients, pets, config, onAction, onEdit, onSms, setClients, setPets }) {
+function ManagerView({ appointments, clients, pets, config, onAction, onEdit, onSms, onDelete, setClients, setPets }) {
   const todayApts = appointments.filter(a => a.date === TODAY);
   const totalMin = todayApts.reduce((s, a) => s + a.duration, 0);
   const byProc = PROCEDURES.map(p => ({ ...p, count: appointments.filter(a => a.procedureId === p.id).length })).filter(p => p.count > 0).sort((a, b) => b.count - a.count);
@@ -1900,6 +1979,7 @@ export default function VetApp() {
   };
   const handleAdd = apt => setAppointments(prev => [...prev, apt]);
   const handleEditSave = (updated) => setAppointments(prev => prev.map(a => a.id === updated.id ? updated : a));
+  const handleDelete = (id) => setAppointments(prev => prev.filter(a => a.id !== id));
   const handleSmsOpen = (apt, client) => setSmsApt({ apt, client });
   const roleInfo = ROLES[role];
   const dateStr = new Date().toLocaleDateString("cs-CZ", { weekday: "long", day: "numeric", month: "long" });
@@ -1942,12 +2022,12 @@ export default function VetApp() {
       <main style={{ padding: "20px 24px", maxWidth: role === "public" && !showSettings ? 700 : 1200, margin: "0 auto" }}>
         {showSettings ? <SettingsView config={config} setConfig={setConfig} /> :
           role === "public" ? <PublicView onSubmitRequest={handleAdd} clients={clients} pets={pets} config={config} appointments={appointments} /> :
-          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} onEdit={setEditApt} onSms={handleSmsOpen} setClients={setClients} setPets={setPets} /> :
+          role === "reception" ? <ReceptionView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onAddApt={handleAdd} onEdit={setEditApt} onSms={handleSmsOpen} onDelete={handleDelete} setClients={setClients} setPets={setPets} /> :
           role === "doctor" ? <DoctorView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} /> :
-          <ManagerView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} setClients={setClients} setPets={setPets} />}
+          <ManagerView appointments={appointments} clients={clients} pets={pets} config={config} onAction={handleAction} onEdit={setEditApt} onSms={handleSmsOpen} onDelete={handleDelete} setClients={setClients} setPets={setPets} />}
       </main>
 
-      {editApt && <EditAptModal apt={editApt} config={config} clients={clients} pets={pets} onSave={handleEditSave} onClose={() => setEditApt(null)} />}
+      {editApt && <EditAptModal apt={editApt} config={config} clients={clients} pets={pets} onSave={handleEditSave} onDelete={handleDelete} onClose={() => setEditApt(null)} />}
       {smsApt && <SmsModal apt={smsApt.apt} client={smsApt.client} pets={pets} config={config} onClose={() => setSmsApt(null)} />}
       <PwaInstallBanner />
     </div>
